@@ -28,7 +28,7 @@ import yaml
 
 from ..workflow.stages import StageSpec
 from .base import DetectedStage, EngineHealth, HealthItem
-from .generic import ManifestAdapter, config_dict, is_collaborative, rel, run_cmd, segment_id, slug
+from .generic import COLLAB_KEYS, ManifestAdapter, config_dict, is_collaborative, rel, run_cmd, segment_id, slug
 
 STATUS_MAP = {"awaiting_human": "awaiting_approval", "completed": "completed", "failed": "failed",
               "in_progress": "running"}
@@ -215,14 +215,17 @@ class OpenMontageAdapter(ManifestAdapter):
         prev = ["setup"]
         heavy = set((self.manifest.get("concurrency") or {}).get("render_heavy_stages") or [])
         for i, s in enumerate(p["stages"]):
-            key = s["name"]
+            om_stage = s["name"]
+            # "assets" (and "narration") are collaborative stage keys; keep native keys distinct
+            key = f"om_{om_stage}" if om_stage in COLLAB_KEYS else om_stage
             specs.append(StageSpec(
-                key=key, name=key.replace("_", " ").title(), description=f"OpenMontage {name} stage `{key}` ({s.get('skill') or 'no director skill'}).",
+                key=key, name=om_stage.replace("_", " ").title(), description=f"OpenMontage {name} stage `{om_stage}` ({s.get('skill') or 'no director skill'}).",
                 capability="native_pipeline", owner=self.id, executor="claude", lane=self.lane, depends_on=prev,
                 gate=s["gate"], engine_gate=s["gate"], required=True,
-                outputs=[f"work/{self.id}/*/checkpoint_{key}.json"],
-                params={"pipeline": name, "om_stage": key, "skill": s.get("skill"), "index": i,
-                        "render_heavy": key in heavy, "prev_gate": specs[-1].key if specs and specs[-1].gate else None},
+                outputs=[f"work/{self.id}/*/checkpoint_{om_stage}.json"],
+                params={"pipeline": name, "om_stage": om_stage, "skill": s.get("skill"), "index": i,
+                        "render_heavy": om_stage in heavy,
+                        "prev_gate": specs[-1].params["om_stage"] if specs and specs[-1].gate else None},
             ))
             prev = [key]
         return specs

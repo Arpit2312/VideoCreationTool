@@ -97,6 +97,8 @@ def patch_engine(engine_id: str, body: EnginePatch, s: Session = Depends(get_ses
     if "enabled" in changes:
         row.enabled = changes["enabled"]
     if "approved" in changes:
+        if changes["approved"] and not row.approved:
+            _approve_onboarded(engine_id)
         row.approved = changes["approved"]
     if "pinned_commit" in changes:
         row.pinned_commit = changes["pinned_commit"] or None
@@ -111,16 +113,7 @@ def patch_engine(engine_id: str, body: EnginePatch, s: Session = Depends(get_ses
         new = save_settings({"engine_paths": paths})
         o = orch()
         o.settings = new
-        try:
-            from ..engines import registry as regmod
-            for fn in ("get_registry",):
-                f = getattr(regmod, fn, None)
-                if f is not None and hasattr(f, "cache_clear"):
-                    f.cache_clear()
-            if hasattr(regmod, "reset_registry"):
-                regmod.reset_registry()
-        except ImportError:
-            pass
+        _reset_registry()
         reg = o.registry_or_none()
         if reg is not None:
             sync_engines(s, reg)
@@ -128,6 +121,24 @@ def patch_engine(engine_id: str, body: EnginePatch, s: Session = Depends(get_ses
         row = s.get(Engine, engine_id)
     audit("engine.updated", actor="user", engine=engine_id, changes=changes)
     return engine_info(a, row)
+
+
+def _approve_onboarded(engine_id: str) -> None:
+    reg = orch().registry_or_none()
+    if reg is None or not hasattr(reg, "manifests"):
+        return
+    meta = next((m for m in reg.manifests() if m.get("id") == engine_id), None)
+    if not meta or meta.get("source") != "onboarded" or not meta.get("manifest_path"):
+        return
+    try:
+        from ..engines import onboarding
+        onboarding.approve_manifest(Path(meta["manifest_path"]),
+                                    existing_ids=[a.id for a in reg.all() if a.id != engine_id])
+    except ImportError:
+        return
+    except ValueError as e:
+        raise HTTPException(422, f"the drafted manifest is not valid: {e}") from None
+    _reset_registry()
 
 
 def _substitute(text: str, repo: Optional[Path], engines_dir: Path) -> str:
@@ -204,20 +215,86 @@ def setup_status(engine_id: str, run_id: str, s: Session = Depends(get_session))
     return {"run": r, "lines": [redact(x) for x in lines]}
 
 
+def _reset_registry() -> None:
+    try:
+        from ..engines import registry as regmod
+    except ImportError:
+        return
+    if hasattr(regmod, "reset_registry"):
+        regmod.reset_registry()
+
+
 @router.post("/engines/onboard")
 def onboard(body: OnboardBody) -> dict:
+    """Start an onboarding Claude job that drafts <data_dir>/engines/<id>/engine.yaml (unapproved)."""
     try:
         from ..engines import onboarding  # agent B
     except ImportError:
         raise HTTPException(501, "engine onboarding is not available (spacestudio.engines.onboarding missing)") from None
-    fn = getattr(onboarding, "start_onboarding", None) or getattr(onboarding, "start", None) \
-        or getattr(onboarding, "onboard", None)
-    if fn is None:
-        raise HTTPException(501, "engine onboarding module has no start function")
-    audit("engine.onboard_requested", actor="user", source=body.url_or_path)
-    try:
-        res = fn(body.url_or_path, get_settings())
-    except (ValueError, FileNotFoundError) as e:
-        raise HTTPException(400, str(e)) from None
-    job_id = res.get("job_id") if isinstance(res, dict) else res
-    return {"job_id": str(job_id)}
+    import asyncio
+    import re as _re
+
+    from ..claude.runner import RunRequest
+
+    o = orch()
+    settings = get_settings()
+    target = settings.data_dir / "engines"
+    target.mkdir(parents=True, exist_ok=True)
+    src = body.url_or_path.strip()
+    is_url = bool(_re.match(r"^(https?://|git@)", src))
+    if not is_url and not Path(src).expanduser().is_dir():
+        raise HTTPException(400, f"{src} is neither a git URL nor an existing directory")
+    reg = o.registry_or_none()
+    existing = [a.id for a in reg.all()] if reg is not None else []
+    run = Run(stage_id="", video_id="", kind="onboard", state="running",
+              simulated=o.runner.is_simulated())
+    log_dir = settings.data_dir / "logs" / "onboarding"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    run.log_path = str(log_dir / f"{run.id}.jsonl")
+    clone_dir = target / "_src" / _re.sub(r"[^A-Za-z0-9_.-]+", "-", src.rstrip("/").split("/")[-1] or "repo")
+    prompt = onboarding.build_onboarding_prompt(src, target, clone_dir=clone_dir if is_url else None,
+                                                existing_ids=existing)
+    with session_scope() as s:
+        s.add(run)
+    audit("engine.onboard_started", actor="user", source=src, job_id=run.id)
+    before = {str(p) for p in onboarding.find_drafts(target)}
+    add_dirs = [target] + ([Path(src).expanduser()] if not is_url else [])
+    req = RunRequest(prompt=prompt, cwd=target, lane="onboarding", log_path=Path(run.log_path),
+                     add_dirs=add_dirs, env=child_env(settings, {}, zero_cost=True, paid_env_names=o.paid_env_names()),
+                     allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash(git clone *)", "Bash(ls *)",
+                                    "Bash(cat *)", "Bash(mkdir *)"],
+                     timeout_s=30 * 60, run_key=run.id)
+
+    def worker() -> None:
+        state, problems = "failed", []
+        try:
+            res = asyncio.run(o.runner.run(req))
+            drafts = [p for p in onboarding.find_drafts(target) if str(p) not in before or res.exit_code == 0]
+            for d in drafts:
+                _data, errs = onboarding.load_draft(d, existing_ids=existing)
+                problems += [f"{d.parent.name}: {e}" for e in errs]
+            state = "done" if drafts and not problems and not res.is_error else "failed"
+            if not drafts:
+                problems.append("no engine.yaml draft was written")
+        except Exception as e:
+            problems.append(str(e))
+        with session_scope() as s2:
+            r = s2.get(Run, run.id)
+            r.state, r.ended_at = state, now()
+            s2.add(r)
+        _reset_registry()
+        audit("engine.onboard_finished", actor="system", job_id=run.id, state=state, problems=problems[:20])
+
+    threading.Thread(target=worker, name=f"onboard-{run.id}", daemon=True).start()
+    return {"job_id": run.id}
+
+
+@router.get("/engines/onboard/{job_id}")
+def onboard_status(job_id: str, s: Session = Depends(get_session)) -> dict:
+    r = s.get(Run, job_id)
+    if r is None or r.kind != "onboard":
+        raise HTTPException(404, "onboarding job not found")
+    lines = []
+    if r.log_path and Path(r.log_path).exists():
+        lines = Path(r.log_path).read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
+    return {"run": r, "lines": [redact(x) for x in lines]}

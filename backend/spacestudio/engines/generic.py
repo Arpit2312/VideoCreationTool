@@ -483,8 +483,12 @@ class ManifestAdapter(EngineAdapter):
         out.append("- Never wait for interactive input and never use AskUserQuestion. If only the user can decide"
                    f" something, append {{\"type\":\"needs_input\",\"stage\":\"{stage.key}\",\"question\":...}} to"
                    f" {ws}/.spacestudio/events.jsonl and end your turn.")
-        out.append(f"- When finished, append {{\"type\":\"stage_completed\",\"stage\":\"{stage.key}\",\"outputs\":[...]}}"
-                   " with workspace-relative paths. On failure append {\"type\":\"error\",...} with the real error.")
+        if native and stage.gate:
+            out.append("- Do not append stage_completed for a gate: SpaceStudio completes it when the user approves."
+                       " On failure append {\"type\":\"error\",...} with the real error.")
+        else:
+            out.append(f"- When finished, append {{\"type\":\"stage_completed\",\"stage\":\"{stage.key}\",\"outputs\":[...]}}"
+                       " with workspace-relative paths. On failure append {\"type\":\"error\",...} with the real error.")
         out.append("- Wrap every heavy render command as `spacestudio-slot render -- <command>` (shared render slots).")
         return "\n".join(out)
 

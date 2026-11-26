@@ -110,9 +110,9 @@ def _plan_collaborative(cfg: VideoConfig, engines: list[Any]) -> list[StageSpec]
         narration.inputs.append(cfg.user_voice_file or "assets/user/")
         chosen = None
         if cfg.voice_engine:
-            chosen = next((a for a in engines if a.id == cfg.voice_engine and _supports_user_audio(a)), None)
-        if chosen is None:
-            chosen = next((a for a in engines if a.id in USER_VOICE_PREFERENCE and _supports_user_audio(a)), None)
+            chosen = next((a for a in engines if a.id == cfg.voice_engine and a.supports("narration")), None)
+        if chosen is None:  # cinematic-skill documents using the user's own recording
+            chosen = next((a for a in engines if a.id in USER_VOICE_PREFERENCE and a.supports("narration")), None)
         if chosen is None:
             chosen = next((a for a in engines if _supports_user_audio(a)), None)
         if chosen is not None:

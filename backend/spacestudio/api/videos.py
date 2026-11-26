@@ -273,6 +273,14 @@ async def put_file(video_id: str, path: str, request: Request) -> dict:
         text = body.decode("utf-8")
     except UnicodeDecodeError:
         raise HTTPException(400, "only UTF-8 text can be edited") from None
+    # The UI sends {"content": "<text>"}; a raw text body is accepted too.
+    if "json" in (request.headers.get("content-type") or ""):
+        try:
+            wrapped = json.loads(text)
+        except json.JSONDecodeError:
+            wrapped = None
+        if isinstance(wrapped, dict) and set(wrapped) == {"content"} and isinstance(wrapped["content"], str):
+            text = wrapped["content"]
     o = orch()
     with o.lock, session_scope() as s:
         v = video_or_404(s, video_id)
@@ -300,8 +308,6 @@ async def put_file(video_id: str, path: str, request: Request) -> dict:
         sv = o.snapshot_file(s, v, rel, owner_key, note=f"before manual edit of {rel}")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
-        if sv is None and owner is None:
-            pass
         s.commit()
         audit("file.edited", actor="user", video_id=v.id, path=rel, version=sv.version if sv else None)
         return _entry(ws.resolve(), p)

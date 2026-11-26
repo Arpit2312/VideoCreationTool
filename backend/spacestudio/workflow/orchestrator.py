@@ -512,6 +512,11 @@ class Orchestrator:
             dst = snap / f
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ws / f, dst)
+        if st.key == "script" and "scripts/script.json" in files:
+            # the UI lists scripts/v<n>/script.json for old script versions
+            legacy = ws / "scripts" / f"v{n}" / "script.json"
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ws / "scripts" / "script.json", legacy)
         sv = StageVersion(stage_id=st.id, version=n, files=files,
                           snapshot_dir=os.path.relpath(snap, ws), note=note, approved=approved)
         s.add(sv)
@@ -533,6 +538,10 @@ class Orchestrator:
             (snap / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ws / rel, snap / rel)
             files = [rel]
+        if st.key == "script" and rel == "scripts/script.json" and files:
+            legacy = ws / "scripts" / f"v{n}" / "script.json"
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ws / rel, legacy)
         sv = StageVersion(stage_id=st.id, version=n, files=files, snapshot_dir=os.path.relpath(snap, ws), note=note)
         s.add(sv)
         return sv

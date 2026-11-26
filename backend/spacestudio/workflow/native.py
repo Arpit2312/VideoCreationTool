@@ -90,20 +90,24 @@ def render_slot(settings: Any, timeout_s: float = 6 * 3600) -> Iterator[Optional
         time.sleep(0.5)
 
 
-def _pipeline_call(fn: Callable, *args: Any) -> tuple[list[str], list[str]]:
+def _pipeline_call(fn: Callable, ws: Path, *args: Any) -> tuple[list[str], list[str]]:
+    """Call a pipeline step; warnings come from a returned (files, warnings) tuple, or from
+    ``pipeline.last_warnings(ws)`` / ``LAST_WARNINGS[str(ws.resolve())]`` (agent D's documented channel)."""
     mod = importlib.import_module(fn.__module__)
-    if hasattr(mod, "LAST_WARNINGS"):
-        try:
-            mod.LAST_WARNINGS.clear()
-        except AttributeError:
-            pass
-    res = fn(*args)
+    res = fn(ws, *args)
     warnings: list[str] = []
     if isinstance(res, tuple) and len(res) == 2:
         files, warnings = list(res[0] or []), list(res[1] or [])
     else:
         files = list(res or [])
-    warnings += [str(w) for w in (getattr(mod, "LAST_WARNINGS", None) or []) if str(w) not in warnings]
+    extra: Any = []
+    if hasattr(mod, "last_warnings"):
+        extra = mod.last_warnings(ws)
+    elif isinstance(getattr(mod, "LAST_WARNINGS", None), dict):
+        extra = mod.LAST_WARNINGS.get(str(Path(ws).resolve()), [])
+    elif isinstance(getattr(mod, "LAST_WARNINGS", None), list):
+        extra = mod.LAST_WARNINGS
+    warnings += [str(w) for w in extra if str(w) not in warnings]
     return [str(f) for f in files], warnings
 
 
@@ -251,14 +255,14 @@ def _media(fn_name: str, heavy: bool, *, needs_title: bool = False) -> Callable[
         fn = getattr(pipeline, fn_name, None)
         if fn is None:
             raise NativeError(f"assembly.pipeline has no {fn_name}()")
-        args: tuple = (ctx.ws, ctx.config, ctx.settings) + ((ctx.video.title,) if needs_title else ())
+        args: tuple = (ctx.config, ctx.settings) + ((ctx.video.title,) if needs_title else ())
         err_cls = getattr(pipeline, "AssemblyError", RuntimeError)
         try:
             if heavy:
                 with render_slot(ctx.settings):
-                    files, warns = _pipeline_call(fn, *args)
+                    files, warns = _pipeline_call(fn, ctx.ws, *args)
             else:
-                files, warns = _pipeline_call(fn, *args)
+                files, warns = _pipeline_call(fn, ctx.ws, *args)
         except err_cls as e:
             return _assembly_error(e)
         return NativeResult(outputs=files, warnings=warns, summary=f"{fn_name}: {len(files)} file(s) written.")
