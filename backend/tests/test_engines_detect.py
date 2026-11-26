@@ -137,8 +137,10 @@ def test_openmontage_checkpoint_status_mapping(registry, tmp_path):
     write_cp(pd, "idea", "awaiting_human", human_approval_required=True)
     d = om.detect(ws, idea)
     assert d.status == "awaiting_approval" and d.outputs == ["work/openmontage/v-deadbeef/checkpoint_idea.json"]
+    assert d.pending_gate == "idea"
     write_cp(pd, "idea", "completed", human_approval_required=True, human_approved=True)
-    assert om.detect(ws, idea).status == "completed"
+    d = om.detect(ws, idea)
+    assert d.status == "completed" and d.pending_gate is None
     write_cp(pd, "scene_plan", "in_progress")
     assert om.detect(ws, scene_plan).status == "running"
     write_cp(pd, "assets", "failed", error="clip download timed out")
@@ -191,6 +193,14 @@ def test_openmontage_collaborative_segment_paid(registry, tmp_path):
     assert om.detect(ws, st).status == "completed"
     pd = ws / "work" / "openmontage" / om.project_id(ws, st)
     assert pd.name == "v-deadbeef-s1"
+    # an internal gate before the segment exists -> awaiting_approval with pending_gate
+    ws2 = make_ws(tmp_path / "g")
+    pd2 = ws2 / "work" / "openmontage" / om.project_id(ws2, st)
+    write_cp(pd2, "research", "completed")
+    write_cp(pd2, "proposal", "awaiting_human", human_approval_required=True)
+    d = om.detect(ws2, st)
+    assert d.status == "awaiting_approval" and d.pending_gate == "proposal" and "proposal" in d.detail
+    assert "work/openmontage/v-deadbeef-s1/checkpoint_proposal.json" in d.outputs
     write_cp(pd, "compose", "completed", spent=1.5)
     d = om.detect(ws, st)
     assert d.status == "failed" and "paid provider used" in d.detail

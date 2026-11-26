@@ -42,6 +42,7 @@ class DetectedStage:
     cost_usd: Optional[float] = None
     progress: Optional[float] = None   # only when the engine really reports it
     last_activity: Optional[str] = None  # additive (agent B): latest real engine event, e.g. OpenMontage events.jsonl
+    pending_gate: Optional[str] = None   # additive (agent B): engine-internal gate waiting for approval (OpenMontage stage name)
 
 
 @dataclass

@@ -477,6 +477,11 @@ class ManifestAdapter(EngineAdapter):
                        f" {{\"type\":\"awaiting_approval\",\"stage\":\"{stage.key}\",\"summary\":...}} to"
                        f" {ws}/.spacestudio/events.jsonl and END YOUR TURN. The approval comes from SpaceStudio, which"
                        " resumes this session with the user's decision and feedback.")
+        elif stage.engine_gate:
+            out.append("- Approvals come from SpaceStudio, never from you. This stage contains the engine's own review"
+                       " gates: at each one append {\"type\":\"awaiting_approval\",\"stage\":\"" + stage.key +
+                       "\",\"pending_gate\":<engine stage>,\"summary\":...} to " + f"{ws}/.spacestudio/events.jsonl"
+                       " and END YOUR TURN; SpaceStudio resumes this session with the user's decision.")
         else:
             out.append("- Approvals come from SpaceStudio. The engine's own review gates are mapped to SpaceStudio"
                        " gates that the user has already passed for this work; do not stop for them.")
@@ -513,6 +518,22 @@ class ManifestAdapter(EngineAdapter):
         if t:
             parts.append(t)
         return "\n\n".join(parts) + "\n"
+
+    def segment_engine_gate(self, config: dict, engine_options: Optional[dict] = None) -> bool:
+        """True when this engine's segment run stops at gates of its own (the planner sets StageSpec.engine_gate)."""
+        return False
+
+    def approval_resume_prompt(self, stage: StageSpec, om_stage: Optional[str] = None, feedback: Optional[str] = None,
+                               workspace: Optional[Path] = None) -> str:
+        """Message the orchestrator sends (with --resume) after the user decides at a gate in SpaceStudio.
+        ``om_stage`` names an engine-internal gate (DetectedStage.pending_gate), if any."""
+        what = f"`{om_stage}` of stage `{stage.key}`" if om_stage else f"stage `{stage.key}`"
+        head = self.marker(stage, workspace) + "\n" if workspace is not None else ""
+        if feedback:
+            return (head + f"The user requested changes to {what} in SpaceStudio:\n{feedback.strip()}\n"
+                    "Revise that work, then stop at the same gate again (append awaiting_approval and end your turn).")
+        return (head + f"The user approved {what} in SpaceStudio. Continue with the next step of this stage;"
+                " stop again at the next gate, or append stage_completed when the stage's outputs are written.")
 
     def config_summary(self, config: dict) -> str:
         c = config_dict(config)

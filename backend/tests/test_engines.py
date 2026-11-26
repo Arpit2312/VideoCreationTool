@@ -257,6 +257,7 @@ def test_collaborative_prompts(registry, ws, eid):
         assert m.group(1) == st.key and m.group(2) == ws.name and m.group(3) == str(ws.resolve()) and m.group(4) == f"engine:{eid}"
         assert "SpaceStudio I/O contract" in p and "ZERO-COST MODE" in p
         assert "Approvals come from SpaceStudio" in p and "Never wait for interactive input" in p
+        assert "approved_via" not in p
         if st.key == "assets":
             assert "assets/manifest.json" in p and "storyboard/storyboard.json" in p and "license" in p
         if st.key == "narration":
@@ -277,6 +278,9 @@ def test_collaborative_prompts(registry, ws, eid):
         assert "AGENT_GUIDE.md" in seg and f"cd {a.repo_path}" in seg and "OPENMONTAGE_PROJECTS_DIR" in seg
         assert "piper_tts" in a.stage_prompt(_stages()[1], ws, cfg)
         assert "direct_clip_search" in a.stage_prompt(_stages()[0], ws, cfg)
+        assert "'awaiting_human'" in seg and "never approve a gate yourself" in seg and "END YOUR TURN" in seg
+        assert "pending_gate" in seg and "do not stop for them" not in seg
+        assert a.segment_engine_gate(cfg) is True
 
 
 @need_clones
@@ -306,7 +310,18 @@ def test_native_prompts(registry, ws):
     p0 = om.stage_prompt(st[0], ws, {})
     assert "init_project" in p0 and "awaiting_human" in p0 and "idea-director" in p0
     p1 = om.stage_prompt(st[1], ws, {})
-    assert "human_approved=True" in p1 and "checkpoint_idea.json" in p1
+    assert "checkpoint_idea.json" in p1 and "do not approve it yourself" in p1
+    assert "Never write it 'completed' yourself" in p0
+    r = om.approval_resume_prompt(st[0], "idea", workspace=ws)
+    assert r.splitlines()[0].startswith("SPACESTUDIO_STAGE=idea ") and "approved OpenMontage stage `idea`" in r
+    assert "'completed'" in r and "human_approved=True" in r
+    rc = om.approval_resume_prompt(st[0], "idea", feedback="Darker tone")
+    assert "Darker tone" in rc and "'awaiting_human'" in rc and "human_approved=True" not in rc
+    g = registry.get("cinematic-skill")
+    gs = g.native_stages({})[0]
+    assert "approved stage `story`" in g.approval_resume_prompt(gs)
+    assert "requested changes" in g.approval_resume_prompt(gs, feedback="x")
+    assert g.segment_engine_gate({}) is False
     lemo = registry.get("lemo-opuscar")
     pb = lemo.stage_prompt(lemo.native_stages({})[0], ws, {"engine_options": {"lemo-opuscar": {"style": "manga-panels"}}})
     assert "zero-cost mode does not allow" in pb

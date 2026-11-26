@@ -261,6 +261,10 @@ Preflight: `cd {R} && {PY} -c "from tools.tool_registry import registry; import 
         ws = Path(workspace).resolve()
         cfg = config_dict(config)
         eo = (cfg.get("engine_options") or {}).get(self.id) or {}
+        if stage.key.startswith("segment:") and not stage.engine_gate and \
+                self.segment_engine_gate(cfg, stage.params.get("engine_options")):
+            import dataclasses
+            stage = dataclasses.replace(stage, engine_gate=True)
         R, PY = self.repo_path, self.om_python()
         pid = self.project_id(ws, stage)
         lane = self.lane_dir(ws)
@@ -311,10 +315,14 @@ Preflight: `cd {R} && {PY} -c "from tools.tool_registry import registry; import 
    segment {seg} ({ws}/storyboard/storyboard.json), their script lines ({ws}/scripts/script.json), the acquired assets
    ({ws}/assets/manifest.json) and the narration window {t0} s + {dur} s ({ws}/narration/timing.json). Target duration
    {dur} s at {cfg['resolution']}, {cfg['fps']} fps. The narration is SpaceStudio's: do not generate a new voice.
-3. Gates: the user already approved this content in SpaceStudio (concept, script, storyboard, asset plan). For each
-   gated stage write the checkpoint (lib.checkpoint.write_checkpoint with pipeline_dir=lib.checkpoint.PROJECTS_DIR,
-   pipeline_type='{seg_pipe}') as completed with human_approved=True and metadata {{"approved_via": "SpaceStudio"}}.
-   If a stage needs a decision SpaceStudio did not make, append needs_input and end your turn.
+3. Gates follow OpenMontage's normal protocol; never approve a gate yourself. At every stage whose
+   human_approval_default is true, write its checkpoint (lib.checkpoint.write_checkpoint with
+   pipeline_dir=lib.checkpoint.PROJECTS_DIR, pipeline_type='{seg_pipe}') with status 'awaiting_human', append
+   {{"type":"awaiting_approval","stage":"{stage.key}","pending_gate":"<OpenMontage stage>","summary":...}} to
+   {ws}/.spacestudio/events.jsonl and END YOUR TURN. SpaceStudio shows it to the user and resumes this session with
+   their decision. Only after a message saying the user approved that stage in SpaceStudio, re-write that checkpoint
+   with status 'completed', human_approval_required=True, human_approved=True (same artifacts) and continue. If a
+   stage needs a decision SpaceStudio did not make, append needs_input and end your turn.
 4. Compose with video_compose (render_runtime {eo.get('render_runtime') or 'remotion'}), wrapping the render as
    `spacestudio-slot render -- ...`, to {PD}/renders/final.mp4.
 5. Make the picture-only segment: `ffmpeg -y -i {PD}/renders/final.mp4 -an -t {dur} -vf "scale={cfg['resolution'].replace('x', ':')},fps={cfg['fps']}" -c:v libx264 -pix_fmt yuv420p {ws}/scenes/{seg}.mp4`
@@ -339,11 +347,10 @@ Preflight: `cd {R} && {PY} -c "from tools.tool_registry import registry; import 
                          f" {ws}/brief.json if present, and the video config below.")
         prev = stage.params.get("prev_gate")
         if prev:
-            lines.append(f"SpaceStudio recorded the user's approval of stage `{prev}`. Before anything else, re-write"
-                         f" {PD}/checkpoint_{prev}.json with lib.checkpoint.write_checkpoint(lib.checkpoint.PROJECTS_DIR,"
-                         f" '{pid}', '{prev}', 'completed', <its artifacts>, pipeline_type='{pipeline}',"
-                         " human_approval_required=True, human_approved=True, metadata={'approved_via': 'SpaceStudio'})."
-                         " If the stage was sent back with feedback instead, SpaceStudio reruns that stage, not this one.")
+            lines.append(f"Stage `{prev}` before this one is gated. Check {PD}/checkpoint_{prev}.json: it must already be"
+                         " 'completed' with human_approved=True (you re-write it only when SpaceStudio tells you the user"
+                         " approved it). If it is still 'awaiting_human', do not approve it yourself: append needs_input"
+                         f" saying `{prev}` is still awaiting approval, and end your turn.")
         lines.append(f"Read the stage director skill {R}/skills/{skill}.md before any work in this stage, and the Layer 3"
                      " skills of the tools you use." if skill else "This stage has no director skill; follow the manifest.")
         lines.append(f"Self-review with {R}/skills/meta/reviewer.md and checkpoint with {R}/skills/meta/checkpoint-protocol.md:"
@@ -351,7 +358,10 @@ Preflight: `cd {R} && {PY} -c "from tools.tool_registry import registry; import 
                      f" pipeline_type='{pipeline}', cost_snapshot=<CostTracker snapshot>).")
         if stage.gate:
             lines.append(f"`{key}` is gated (human_approval_default: true): write status 'awaiting_human', then append the"
-                         " awaiting_approval event with the artifact summary and END YOUR TURN.")
+                         f" awaiting_approval event (with \"pending_gate\": \"{key}\") with the artifact summary and END"
+                         " YOUR TURN. Never write it 'completed' yourself: when SpaceStudio resumes this session saying the"
+                         f" user approved `{key}`, re-write checkpoint_{key}.json as 'completed' with"
+                         " human_approval_required=True, human_approved=True (same artifacts) and stop.")
         else:
             lines.append(f"`{key}` is not gated: write status 'completed' when done.")
         if key in ("compose", "publish") or stage.params.get("index") == len(self.pipeline(pipeline)["stages"]) - 1:
@@ -435,20 +445,61 @@ Preflight: `cd {R} && {PY} -c "from tools.tool_registry import registry; import 
             status, detail = "awaiting_approval", "completed checkpoint without human_approved on a gated stage"
         if status == "failed":
             detail = f"OpenMontage: {cp.get('error') or 'stage failed'}"
+        pending = key if status == "awaiting_approval" else None
         outputs = [rel(ws, f)]
         for pat in ("artifacts/*.json", "renders/*.mp4"):
             outputs += sorted(rel(ws, p) for p in PD.glob(pat) if p.is_file())
         cost = (cp.get("cost_snapshot") or {}).get("total_spent_usd")
         det = DetectedStage(stage.key, status, outputs, detail,
-                            cost_usd=float(cost) if isinstance(cost, (int, float)) else None)
+                            cost_usd=float(cost) if isinstance(cost, (int, float)) else None, pending_gate=pending)
         return self._paid_check(ws, stage, det, PD)
+
+    def pending_gates(self, project_dir: Path) -> list[str]:
+        """OpenMontage stages whose checkpoint is awaiting_human, in pipeline order when known."""
+        out = []
+        for f in Path(project_dir).glob("checkpoint_*.json"):
+            try:
+                cp = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if cp.get("status") == "awaiting_human":
+                out.append(str(cp.get("stage") or f.stem[len("checkpoint_"):]))
+        return sorted(out)
 
     def detect_collaborative(self, workspace: Path, stage: StageSpec) -> DetectedStage:
         det = super().detect_collaborative(workspace, stage)
         PD = self.project_dir(workspace, stage)
-        if PD.is_dir():
-            det = self._paid_check(Path(workspace), stage, det, PD)
-        return det
+        if not PD.is_dir():
+            return det
+        if stage.key.startswith("segment:") and det.status != "completed":
+            gates = self.pending_gates(PD)
+            if gates:
+                det = DetectedStage(stage.key, "awaiting_approval", det.outputs + sorted(
+                    rel(Path(workspace), PD / f"checkpoint_{g}.json") for g in gates),
+                    f"OpenMontage gate `{gates[0]}` awaiting approval (pending_gate={gates[0]})",
+                    pending_gate=gates[0])
+        return self._paid_check(Path(workspace), stage, det, PD)
+
+    def segment_engine_gate(self, config: dict, engine_options: Optional[dict] = None) -> bool:
+        name = (engine_options or {}).get("pipeline") or self.chosen_pipeline(config)
+        p = self.pipeline(name)
+        return bool(p and any(s["gate"] for s in p["stages"]))
+
+    def approval_resume_prompt(self, stage: StageSpec, om_stage: Optional[str] = None, feedback: Optional[str] = None,
+                               workspace: Optional[Path] = None) -> str:
+        om_stage = om_stage or stage.params.get("om_stage") or stage.key
+        head = self.marker(stage, workspace) + "\n" if workspace is not None else ""
+        pid = self.project_id(workspace, stage) if workspace is not None else "<project-id>"
+        if feedback:
+            return (head + f"The user requested changes to OpenMontage stage `{om_stage}` in SpaceStudio:\n{feedback.strip()}\n"
+                    f"Revise that stage following its director skill, re-write checkpoint_{om_stage}.json with status"
+                    " 'awaiting_human' (the previous version goes to history/), append the awaiting_approval event with"
+                    f" \"pending_gate\": \"{om_stage}\" and END YOUR TURN.")
+        return (head + f"The user approved OpenMontage stage `{om_stage}` in SpaceStudio. Re-write checkpoint_{om_stage}.json"
+                f" with lib.checkpoint.write_checkpoint(lib.checkpoint.PROJECTS_DIR, '{pid}', '{om_stage}', 'completed',"
+                " <the same artifacts>, pipeline_type=<the project's pipeline>, human_approval_required=True,"
+                " human_approved=True), then continue with the next step; stop again at the next gated stage, or append"
+                " stage_completed when this SpaceStudio stage's outputs are written.")
 
     def collect_outputs(self, workspace: Path, stage: StageSpec) -> list[str]:
         outs = list(self.detect(workspace, stage).outputs)
