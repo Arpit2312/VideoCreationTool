@@ -140,7 +140,11 @@ export const api = {
 
   videos: (q: { project_id?: string; batch_id?: string; status?: string } = {}) => get<Video[]>(`/videos${qs(q)}`),
   video: (id: string) => get<VideoDetail>(`/videos/${enc(id)}`),
-  createVideo: (body: VideoCreate) => post<Video>("/videos", body),
+  // POST /videos returns a VideoDetail ({video, stages, sessions, simulated}); callers want the Video.
+  createVideo: async (body: VideoCreate) => {
+    const r = await post<Video | { video: Video }>("/videos", body);
+    return "video" in r && r.video ? r.video : (r as Video);
+  },
   videoAction: (id: string, action: "start" | "pause" | "resume" | "cancel" | "retry") =>
     post<Video>(`/videos/${enc(id)}/${action}`),
   patchConfig: (id: string, cfg: Partial<VideoConfig>) => patch<Video>(`/videos/${enc(id)}/config`, cfg),

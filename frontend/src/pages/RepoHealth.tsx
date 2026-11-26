@@ -70,14 +70,14 @@ export default function RepoHealth() {
         health.data && (
           <div className="grid lg:grid-cols-2 gap-4">
             <Section title="Claude Code" actions={health.data.claude.simulated && <SimulatedBadge />}>
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <ItemIcon status={health.data.claude.ok ? "ok" : "missing"} />
-                <code className="font-mono">{health.data.claude.bin}</code>
-                <span className="text-muted">{health.data.claude.version || "version unknown"}</span>
+                <code className="font-mono break-all">{health.data.claude.bin}</code>
+                <span className="text-muted break-words min-w-0">{health.data.claude.version || "version unknown"}</span>
               </div>
               {!health.data.claude.ok && <p className="text-xs mt-2">Install Claude Code and sign in (<code>claude</code> in a terminal), or set the binary path in Settings.</p>}
               {health.data.claude.simulated && <p className="text-xs text-orange-700 dark:text-orange-300 mt-2">This binary is not the real Claude CLI. Every run is labelled SIMULATED.</p>}
-              <div className="mt-3"><ZeroCostBadge on={health.data.zero_cost_ready} /> <span className="subtle">{health.data.zero_cost_ready ? "All enabled engines are ready to run at zero cost." : "Some engine is not zero-cost ready — see below."}</span></div>
+              <div className="mt-3"><ZeroCostBadge on={health.data.zero_cost_ready} /> <span className="subtle">{(health.data.engines_ready?.length ?? 0)} of {health.data.engines_total ?? health.data.engines.length} enabled engines are installed and ready to run at zero cost.{!health.data.zero_cost_ready && " Fix the items below to enable zero-cost production."}</span></div>
             </Section>
             <Section title="Tools">
               <Items items={health.data.tools} />
@@ -125,7 +125,7 @@ function EngineCard({ engine: e, health, onChanged }: { engine: EngineInfo; heal
         <span><span className="text-muted">Path:</span> <code className="font-mono">{e.path || "—"}</code></span>
         <span><span className="text-muted">Licence:</span> {e.license}</span>
         {health?.commit && <span className="inline-flex items-center gap-1"><GitBranch className="h-3 w-3" /> <code className="font-mono">{health.commit.slice(0, 10)}</code></span>}
-        <span><span className="text-muted">Cost:</span> {e.cost?.zero_cost ? "free" : "may cost"}{e.cost?.notes ? ` — ${e.cost.notes}` : ""}</span>
+        <span><span className="text-muted">Cost:</span> {e.cost?.zero_cost === "partial" ? "free on its zero-cost pipelines only" : e.cost?.zero_cost ? "free" : "may cost"}{e.cost?.notes ? ` — ${e.cost.notes}` : ""}</span>
       </div>
       {e.approved === false && (
         <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm flex flex-wrap items-center gap-2">

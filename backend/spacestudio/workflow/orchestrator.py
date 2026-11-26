@@ -28,8 +28,8 @@ from ..config import get_settings
 from ..db import session_scope
 from ..events import publish
 from ..interchange import schema as ix
-from ..models import Approval, ClaudeSession, Engine, Run, Stage, StageVersion, Video, new_id, now
-from ..security import child_env, redact
+from ..models import Approval, AuditLog, ClaudeSession, Engine, Run, Stage, StageVersion, Video, now
+from ..security import child_env, redact, redact_obj
 from . import native, planner
 from .stages import DONE, InvalidTransition, StageSpec, StageStatus, JobStatus, transition
 
@@ -63,6 +63,8 @@ class Outcome:
     engine_gate: bool = False
     progress: Optional[float] = None
     cost_usd: float = 0.0
+    pending_gate: Optional[str] = None      # engine-internal gate (DetectedStage.pending_gate)
+    last_activity: Optional[str] = None
 
 
 def stage_to_spec(st: Stage) -> StageSpec:
@@ -149,6 +151,13 @@ class Orchestrator:
         reg = self.registry_or_none()
         try:
             return set(reg.paid_env_names()) if reg is not None else set()
+        except Exception:
+            return set()
+
+    def free_env_names(self) -> set[str]:
+        reg = self.registry_or_none()
+        try:
+            return set(reg.free_env_names()) if reg is not None and hasattr(reg, "free_env_names") else set()
         except Exception:
             return set()
 
@@ -390,13 +399,24 @@ class Orchestrator:
 
     def _record(self, s: Session, st: Stage, decision: str, feedback: str = "", actor: str = "user") -> None:
         s.add(Approval(stage_id=st.id, decision=decision, feedback=feedback))
-        audit(f"stage.{decision}", actor=actor, video_id=st.video_id, stage=st.key, feedback=feedback[:2000])
+        self._audit(s, f"stage.{decision}", actor=actor, video_id=st.video_id, stage=st.key, feedback=feedback[:2000])
 
     def approve(self, s: Session, st: Stage, actor: str = "user", note: str = "") -> Stage:
         with self.lock:
             v = self._video(s, st)
             if st.status != StageStatus.awaiting_approval.value:
                 raise OrchestratorError(f"stage {st.key} is {st.status}, not awaiting approval")
+            pending_gate = (st.params or {}).get("pending_gate")
+            if pending_gate:
+                # The engine stopped at a gate of its own: resume the same lane session with the decision.
+                st.status = StageStatus.queued.value
+                st.params = {**st.params, "_gate_resume": {"pending_gate": pending_gate, "feedback": None}}
+                self._record(s, st, "approve", note, actor)
+                s.add(st)
+                s.commit()
+                self._after_change(s, v, st)
+                self.wake()
+                return st
             st.status = transition(st.status, "approve").value
             self._record(s, st, "approve", note, actor)
             self._snapshot(s, st, note="approved" + (f" ({note})" if note else ""), approved=True)
@@ -413,10 +433,13 @@ class Orchestrator:
             v = self._video(s, st)
             if v.status == JobStatus.cancelled.value:
                 raise OrchestratorError("the video is cancelled; retry it first")
+            pending_gate = (st.params or {}).get("pending_gate") if st.status == StageStatus.awaiting_approval.value else None
             st.status = transition(st.status, "request_changes").value
             self._snapshot(s, st, note=f"before changes: {feedback[:200]}")
             st.pending_feedback = feedback
             st.params = {**(st.params or {}), "_feedback_kind": "changes"}
+            if pending_gate:
+                st.params["_gate_resume"] = {"pending_gate": pending_gate, "feedback": feedback}
             st.error, st.question, st.completed_at = None, None, None
             self._record(s, st, "request_changes", feedback, actor)
             s.add(st)
@@ -488,6 +511,12 @@ class Orchestrator:
             self._after_change(s, v, st)
         self.wake()
         return st
+
+    @staticmethod
+    def _audit(s: Session, event: str, actor: str = "system", video_id: Optional[str] = None, **details: Any) -> None:
+        """Audit inside the caller's transaction (a second connection would wait on SQLite's write lock).
+        The caller commits."""
+        s.add(AuditLog(event=event, actor=actor, video_id=video_id, details=redact_obj(details)))
 
     def _after_change(self, s: Session, v: Video, st: Stage) -> None:
         self._emit_stage(st)
@@ -620,7 +649,7 @@ class Orchestrator:
             preview.depends_on = [sp.key for sp in specs]
             s.add(preview)
         s.flush()
-        audit("video.segments_planned", video_id=v.id,
+        self._audit(s, "video.segments_planned", video_id=v.id,
               segments=[{"key": sp.key, "engine": sp.owner, "reason": sp.params.get("reason")} for sp in specs])
 
     def _register_assets(self, s: Session, v: Video, st: Stage) -> None:
@@ -861,7 +890,13 @@ class Orchestrator:
             plugin_dirs = [Path(d) for d in ls.plugin_dirs]
             engine_env = dict(ls.env)
             tools = list(dict.fromkeys(list(ls.allowed_tools) + tools))
-            prompt = adapter.stage_prompt(spec, ws, cfg_d, feedback=feedback, resume=resume)
+            gate_resume = (st.params or {}).get("_gate_resume")
+            if gate_resume and hasattr(adapter, "approval_resume_prompt"):
+                prompt = adapter.approval_resume_prompt(spec, om_stage=gate_resume.get("pending_gate"),
+                                                        feedback=gate_resume.get("feedback"), workspace=ws)
+                feedback = None
+            else:
+                prompt = adapter.stage_prompt(spec, ws, cfg_d, feedback=feedback, resume=resume)
             prompt = prompts.ensure_header(prompt, st.key, v.id, ws, lane, st.expected_outputs or [])
             if (feedback and feedback not in prompt) or (resume and "RESUME" not in prompt.upper()):
                 prompt += "\n\n" + prompts.engine_stage_extras(feedback if feedback not in prompt else None,
@@ -877,7 +912,8 @@ class Orchestrator:
             "SPACESTUDIO_STAGE": st.key,
         })
         env = child_env(self.settings, engine_env, zero_cost=cfg.zero_cost,
-                        approved_paid_providers=cfg.approved_paid_providers, paid_env_names=paid)
+                        approved_paid_providers=cfg.approved_paid_providers, paid_env_names=paid,
+                        free_env_names=self.free_env_names())
         sess = s.exec(select(ClaudeSession).where(ClaudeSession.video_id == v.id, ClaudeSession.lane == lane)).first()
         return RunRequest(
             prompt=prompt, cwd=cwd, lane=lane, log_path=log_path,
@@ -1046,6 +1082,8 @@ class Orchestrator:
 
         engine_gate = False
         progress = None
+        pending_gate: Optional[str] = None
+        det_activity: Optional[str] = None
         outputs: list[str] = []
         detected_cost = 0.0
         if st.owner not in ("spacestudio", "") and st.key not in prompts.CREATIVE_STAGES:
@@ -1056,6 +1094,10 @@ class Orchestrator:
             except Exception as e:
                 return Outcome("failed", warnings=warnings, error=f"could not check the engine's files: {e}")
             progress = det.progress
+            pending_gate = getattr(det, "pending_gate", None)
+            if not pending_gate and last is not None and last.get("type") == "awaiting_approval":
+                pending_gate = last.get("pending_gate") if isinstance(last.get("pending_gate"), str) else None
+            det_activity = getattr(det, "last_activity", None)
             detected_cost = float(det.cost_usd or 0.0)
             if cfg.zero_cost and detected_cost > 0:
                 return Outcome("failed", warnings=warnings,
@@ -1098,7 +1140,8 @@ class Orchestrator:
                     if p.is_file() and rel not in outputs:
                         outputs.append(rel)
         return Outcome("gate" if engine_gate else "completed", outputs=outputs, warnings=warnings, summary=summary,
-                       engine_gate=engine_gate, progress=progress, cost_usd=detected_cost)
+                       engine_gate=engine_gate, progress=progress, cost_usd=detected_cost,
+                       pending_gate=pending_gate if engine_gate else None, last_activity=det_activity)
 
     def _validate_interchange(self, ws: Path, st: Stage, v: Video, cfg: ix.VideoConfig, s: Session) -> list[str]:
         problems = []
@@ -1133,31 +1176,38 @@ class Orchestrator:
         st.summary = out.summary or st.summary
         if out.progress is not None:
             st.progress = out.progress
-        st.last_activity = None
+        st.last_activity = redact(out.last_activity)[:300] if out.last_activity else None
+        # a run that resumed after an engine-internal gate was decided: the user already approved this work
+        was_gate_resume = bool((st.params or {}).get("_gate_resume"))
+        st.params = {k: val for k, val in (st.params or {}).items() if k not in ("_gate_resume", "pending_gate")}
+        if out.pending_gate:
+            st.params["pending_gate"] = out.pending_gate
         if out.status == "failed":
             st.status, st.error = transition(st.status, "fail").value, redact(out.error or "failed")
-            audit("stage.failed", video_id=v.id, stage=st.key, error=st.error)
+            self._audit(s, "stage.failed", video_id=v.id, stage=st.key, error=st.error)
         elif out.status == "needs_input":
             st.status, st.question = transition(st.status, "ask").value, out.question
             st.pending_feedback = None
-            audit("stage.needs_input", video_id=v.id, stage=st.key, question=out.question)
+            self._audit(s, "stage.needs_input", video_id=v.id, stage=st.key, question=out.question)
         else:
             cfg = video_config(v)
             if out.engine_gate:
                 st.engine_gate = True
             st.pending_feedback = None
             st.params = {k: val for k, val in (st.params or {}).items() if k != "_resume"}
-            if self.should_gate(st, cfg, self.stages(s, v.id), out.engine_gate):
+            gate_now = out.engine_gate if was_gate_resume else self.should_gate(st, cfg, self.stages(s, v.id),
+                                                                                  out.engine_gate)
+            if gate_now:
                 st.status = transition(st.status, "gate").value
-                audit("stage.awaiting_approval", video_id=v.id, stage=st.key)
+                self._audit(s, "stage.awaiting_approval", video_id=v.id, stage=st.key)
             else:
                 st.status = transition(st.status, "finish").value
                 if st.gate:
                     s.add(Approval(stage_id=st.id, decision="approve",
                                    feedback=f"auto-approved (approval_mode={cfg.approval_mode})"))
-                    audit("stage.auto_approved", video_id=v.id, stage=st.key, mode=cfg.approval_mode)
+                    self._audit(s, "stage.auto_approved", video_id=v.id, stage=st.key, mode=cfg.approval_mode)
                     self._snapshot(s, st, note="auto-approved", approved=True)
-                audit("stage.completed", video_id=v.id, stage=st.key)
+                self._audit(s, "stage.completed", video_id=v.id, stage=st.key)
                 self._complete(s, v, st)
         s.add(st)
         s.commit()

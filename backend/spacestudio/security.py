@@ -45,11 +45,12 @@ def child_env(
     approved_paid_providers: Iterable[str] = (),
     paid_env_names: Iterable[str] = (),
     base_env: Optional[Mapping[str, str]] = None,
+    free_env_names: Iterable[str] = (),
 ) -> dict[str, str]:
     """Build the environment for a child process (Claude CLI, setup command).
 
     Starts from a minimal allowlist, adds Claude auth/proxy variables, the user's ``extra_env``, the
-    ``allowed_free_keys`` and the engine's declared non-secret env. Paid provider keys (any engine's
+    ``allowed_free_keys`` / engines' ``cost.free_env`` keys and the engine's declared non-secret env. Paid provider keys (any engine's
     ``cost.paid_env``) are dropped in zero-cost mode; outside zero-cost only keys of approved providers pass.
     """
     src = dict(os.environ if base_env is None else base_env)
@@ -61,7 +62,8 @@ def child_env(
             env[k] = v
     for k, v in (getattr(settings, "extra_env", None) or {}).items():
         env[str(k)] = str(v)
-    for k in getattr(settings, "allowed_free_keys", None) or []:
+    free_keys = set(getattr(settings, "allowed_free_keys", None) or []) | set(free_env_names or [])
+    for k in free_keys:
         if k in src:
             env[k] = src[k]
     for k, v in (engine_env or {}).items():
@@ -71,7 +73,6 @@ def child_env(
             if k in src and any(_provider_matches(k, p) for p in approved):
                 env[k] = src[k]
     # Final filter: paid names never pass in zero-cost mode, nor outside it unless approved.
-    free_keys = set(getattr(settings, "allowed_free_keys", None) or [])
     for k in list(env):
         if k in paid and not _is_claude_var(k) and k not in free_keys:
             if zero_cost or not any(_provider_matches(k, p) for p in approved):

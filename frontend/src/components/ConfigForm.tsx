@@ -366,7 +366,7 @@ export function EngineSettings({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{e.name}</span>
                 <span className="subtle font-mono">{e.id}</span>
-                {e.cost?.zero_cost ? <Badge tone="green">free</Badge> : <Badge tone="amber">may cost</Badge>}
+                {e.cost?.zero_cost === "partial" ? <Badge tone="green">free paths only</Badge> : e.cost?.zero_cost ? <Badge tone="green">free</Badge> : <Badge tone="amber">may cost</Badge>}
                 {fitsType && <Badge tone="violet">fits this video type</Badge>}
                 {disabled && <Badge tone="muted">{e.approved === false ? "not approved" : "disabled"}</Badge>}
                 {e.health && !e.health.ok && <Badge tone="red">health issues</Badge>}

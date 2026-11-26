@@ -249,11 +249,14 @@ def expand_segments(video: Any, storyboard: Storyboard, registry: Any, ws: Optio
         opts = {**(seg.engine_options or {}), **(forced.get(seg.engine) or {})}
         adapter = registry.get(seg.engine)
         name = (getattr(adapter, "manifest", {}) or {}).get("name", seg.engine)
+        engine_gate = False
+        if hasattr(adapter, "segment_engine_gate"):
+            engine_gate = bool(adapter.segment_engine_gate(cfg.model_dump(), opts))
         specs.append(StageSpec(
             key=f"{SEGMENT_PREFIX}{seg.id}", name=f"Segment {seg.id} ({name})",
             description=f"Render scenes {seg.scene_numbers} with {name}. {seg.reason}".strip(),
             capability=Capability.scene_render.value, owner=seg.engine, executor="claude",
-            lane=f"engine:{seg.engine}", depends_on=["assets", "narration"],
+            lane=f"engine:{seg.engine}", depends_on=["assets", "narration"], engine_gate=engine_gate,
             inputs=["storyboard/storyboard.json", "narration/timing.json", "assets/manifest.json"],
             outputs=[f"scenes/{seg.id}.mp4", f"scenes/{seg.id}.json"],
             params={"segment": seg.id, "engine_options": opts, "start": start, "end": end,

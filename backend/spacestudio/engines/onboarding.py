@@ -136,9 +136,9 @@ def validate_manifest(data: Any, existing_ids: Iterable[str] = (), onboarded: bo
         errors.append("options must be a mapping")
     cost = data.get("cost")
     if "cost" in data:
-        if not isinstance(cost, dict) or not isinstance(cost.get("zero_cost"), bool) \
+        if not isinstance(cost, dict) or cost.get("zero_cost") not in (True, False, "partial") \
                 or not isinstance(cost.get("paid_env", None), list):
-            errors.append("cost needs zero_cost: bool and paid_env: [list]")
+            errors.append("cost needs zero_cost: true | false | partial and paid_env: [list]")
     conc = data.get("concurrency")
     if "concurrency" in data and not (isinstance(conc, dict) and isinstance(conc.get("render_heavy_stages", []), list)
                                       and isinstance(conc.get("env", {}), dict)):

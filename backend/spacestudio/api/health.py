@@ -107,5 +107,10 @@ def report(settings: Any, runner: Any, registry: Optional[Any], enabled: Optiona
                 continue
             engines.append(engine_health(a, settings.zero_cost_default))
     tools_ok = all(t.status != "error" for t in tools if t.id in ("ffmpeg", "ffmpeg_features", "ffprobe"))
-    zc = claude["ok"] and tools_ok and all(e["zero_cost_ready"] for e in engines if e["ok"])
-    return {"tools": [t.__dict__ for t in tools], "engines": engines, "claude": claude, "zero_cost_ready": bool(zc)}
+    # Engines that are installed AND can run without paid providers. An engine that is not installed is
+    # not "ready" (it cannot run at all); one that is installed but has paid keys loaded blocks zero-cost.
+    ready = [e["engine"] for e in engines if e["ok"] and e["zero_cost_ready"]]
+    blocking = [e["engine"] for e in engines if e["ok"] and not e["zero_cost_ready"]]
+    zc = claude["ok"] and tools_ok and bool(ready) and not blocking
+    return {"tools": [t.__dict__ for t in tools], "engines": engines, "claude": claude, "zero_cost_ready": bool(zc),
+            "engines_ready": ready, "engines_total": len(engines)}

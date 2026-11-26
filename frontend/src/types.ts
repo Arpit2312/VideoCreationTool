@@ -212,7 +212,7 @@ export interface EngineInfo {
   path: string;
   capabilities: Record<string, { supported: boolean; detail?: string }>;
   options: Record<string, unknown>;
-  cost: { zero_cost: boolean; paid_env: string[]; notes?: string };
+  cost: { zero_cost: boolean | "partial"; paid_env: string[]; notes?: string };
   health: EngineHealth | null;
   setup_steps: SetupStep[];
 }
@@ -222,6 +222,8 @@ export interface HealthReport {
   engines: EngineHealth[];
   claude: { bin: string; version?: string | null; simulated: boolean; ok: boolean };
   zero_cost_ready: boolean;
+  engines_ready?: string[];
+  engines_total?: number;
 }
 
 export interface QueueEntry {

@@ -79,7 +79,8 @@ options:
     - {id: ffmpeg, name: "FFmpeg", zero_cost: true}
 
 cost:
-  zero_cost: false                            # free path exists by pipeline; paid providers are auto-loaded from .env
+  zero_cost: partial                          # free only through zero_cost_pipelines (Piper, Remotion/HyperFrames, open archives);
+                                              # paid providers are auto-loaded from .env, so the adapter enforces zero-cost
   # every provider credential in .env.example (plus ATLASCLOUD_API_KEY, which its comments name).
   # tools/base_tool._load_dotenv fills any of these that are missing or empty from <repo>/.env.
   paid_env:

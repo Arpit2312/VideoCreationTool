@@ -171,3 +171,14 @@ def wait_stage(client, vid: str, key: str, statuses: set[str], timeout: float = 
             raise AssertionError(f"stage {key} failed: {st['error']}")
         return st if st["status"] in statuses else None
     return wait_for(check, timeout, what=f"{key} in {statuses}")
+
+
+def fake_env(monkeypatch, **variables: str) -> None:
+    """Pass FAKE_CLAUDE_* knobs to the child: the runner's env allowlist drops unknown vars, so they go
+    through settings.extra_env. Call before make_client()."""
+    import json as _json
+
+    from spacestudio import config
+
+    monkeypatch.setenv("SPACESTUDIO_EXTRA_ENV", _json.dumps(variables))
+    config.reload_settings()

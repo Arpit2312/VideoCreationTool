@@ -762,7 +762,7 @@ class GenericAdapter(ManifestAdapter):
             items.append(HealthItem("approved", "Manifest approved", "warning", "drafted by onboarding; not approved yet",
                                     "review the engine.yaml and approve it in Settings > Engines"))
         cost = self.manifest.get("cost") or {}
-        zc = bool(cost.get("zero_cost", False))
+        zc = cost.get("zero_cost", False) in (True, "partial")
         return self.finish_health(items, commit, zero_cost, zero_cost_ready=zc and self.approved)
 
     def project_name(self) -> str:

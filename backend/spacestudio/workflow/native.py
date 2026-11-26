@@ -159,7 +159,9 @@ def setup(ctx: NativeContext) -> NativeResult:
                 bad = "; ".join(f"{i.get('name')}: {i.get('detail')} {i.get('fix', '')}".strip()
                                 for i in items if i.get("status") == "error")
                 res.warnings.append(f"engine {eid} is not healthy: {bad or 'see Engines page'}")
-            if ctx.config.zero_cost and not h.zero_cost_ready:
+            # an engine that isn't installed also reports not zero-cost ready; only a healthy engine that is
+            # not zero-cost ready (e.g. paid keys in its repo .env) blocks the video
+            if ctx.config.zero_cost and h.ok and not h.zero_cost_ready:
                 problems.append(f"engine {eid} is not zero-cost ready (paid keys configured in its repo?)")
     (ws / ".spacestudio" / "health.json").write_text(json.dumps(health, indent=2, default=str), encoding="utf-8")
     res.outputs.append(".spacestudio/health.json")
