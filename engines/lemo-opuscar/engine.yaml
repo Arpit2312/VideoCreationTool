@@ -1,0 +1,133 @@
+# SpaceStudio engine manifest: lemo-opuscar (lemomo-ai/lemo-opuscar)
+# Checked against v2.0.0 (commit 439b98a): AGENTS.md, DIRECTOR.md, TECHNIQUE.md, core/README.md,
+# plugin/skills/lemo-opuscar/SKILL.md and scripts/setup.sh, styles/*/style.json.
+id: lemo-opuscar
+name: Lemo-Opuscar
+description: >-
+  A library of 99 code-drawn film styles (painting, whiteboard, newsreel, satellite, blueprint,
+  pixel, 3D...). Claude writes an HTML page with window.render(t), rendered frame by frame in
+  headless Chromium; voice (Kokoro, offline), score, SFX and mix are made in code too.
+license: "MIT (code); CC BY-NC 4.0 (docs and style prompts, with a grant for your own films)"
+version: "2.0.0"
+repo:
+  url: https://github.com/lemomo-ai/lemo-opuscar
+  default_dir: lemo-opuscar
+adapter: spacestudio.engines.lemo.LemoAdapter
+
+invocation:
+  kind: claude-plugin
+  # plugin/ is a plugin folder (skills/lemo-opuscar/SKILL.md). Verified with Claude Code 2.1.332:
+  # `claude --plugin-dir <repo>/plugin plugin details lemo-opuscar` lists the skill `lemo-opuscar`.
+  plugin_dir: plugin
+  skill: lemo-opuscar
+  skill_file: plugin/skills/lemo-opuscar/SKILL.md
+  setup_script: plugin/skills/lemo-opuscar/scripts/setup.sh
+
+requires:
+  commands: [node, ffmpeg, ffprobe, sh]
+  node: ">=20"
+  ffmpeg: ">=7"                               # TECHNIQUE.md §1: 6.x under-reports audio length; mux.sh rejects it
+  python: ">=3.11"
+
+health:
+  expected_files:
+    - AGENTS.md
+    - DIRECTOR.md
+    - TECHNIQUE.md
+    - core/README.md
+    - core/render/video.mjs
+    - core/render/still.mjs
+    - core/render/mux.sh
+    - core/tts/tts.py
+    - plugin/skills/lemo-opuscar/SKILL.md
+    - plugin/skills/lemo-opuscar/scripts/setup.sh
+    - styles/README.md
+
+capabilities:
+  research: {supported: true, detail: "Brief and treatment research (DIRECTOR.md §1-4)."}
+  concept: {supported: true, detail: "TREATMENT.md: three candidate structures, logline, shot list, beat sheet, cue map."}
+  storyboard: {supported: true, detail: "Optional storyboard sheet of 6-9 key shots (core/render/sheet.py), only if asked."}
+  asset_acquisition: {supported: false, detail: "No general image/footage fetcher; style material only (Edit & Documentary styles use their own demo/tools)."}
+  narration: {supported: true, detail: "core/tts/tts.py (Kokoro, offline, needs `setup.sh deps voice`); asr_check.py speech check. tts_zh.py uses edge-tts (online)."}
+  scene_render: {supported: true, detail: "Page with window.render(t); core/render/video.mjs --size WxH --fps N --workers N; RENDER_SLOTS caps concurrent renders."}
+  sound_design: {supported: true, detail: "core/audio/sfx.py, sampler.py (free sample libraries, credited), mux.sh at -14 LUFS."}
+  captions: {supported: true, detail: "core/render/srt.py cues.json out.srt."}
+  render: {supported: true, detail: "video.mjs + mux.sh (two-pass loudnorm)."}
+  native_pipeline: {supported: true, detail: "Brief -> treatment -> look -> (storyboard) -> produce -> deliver (AGENTS.md Workflow)."}
+
+options:
+  # The 99 styles are parsed at load time from styles/*/style.json (folders starting with "_" are templates).
+  # A style whose style.json has "needs": ["image-generation"] (the ✦ styles) is zero_cost: false.
+  options_from: styles/*/style.json
+  storyboard:
+    - {id: false, name: "No storyboard (default)", zero_cost: true}
+    - {id: true, name: "Stop for a storyboard approval", zero_cost: true}
+
+cost:
+  zero_cost: true
+  paid_env: []
+  free_env: []
+  notes: >-
+    Free except the ✦ styles (image generator the user provides: Codex CLI or another tool) and edge-tts
+    for Chinese narration (free online Microsoft service, external terms). Sample libraries download from
+    GitHub Releases / Hugging Face on first use.
+
+concurrency:
+  render_heavy_stages: [produce]
+  env:
+    RENDER_SLOTS: "{render_slots}"            # core/render/slot.mjs: at most N full-film renders machine-wide
+  max_parallel: 2
+
+stages:
+  - {key: brief, name: "Brief", maps_to: concept,
+     description: "Run setup.sh (status), check the style (and gen_image.py --check for ✦ styles), sum up the brief from SpaceStudio's answers.",
+     produces: [BRIEF.md]}
+  - {key: treatment, name: "Treatment", maps_to: concept,
+     description: "TREATMENT.md (DIRECTOR.md §4) before opening the demo.",
+     produces: [TREATMENT.md]}
+  - {key: look, name: "Look frames", maps_to: scene_render,
+     description: "Style frames or a model sheet with the real drawing code (still.mjs), checked against STYLE.md (DIRECTOR.md §5).",
+     produces: ["stills/*.jpg"]}
+  - {key: storyboard, name: "Storyboard", gate: true, engine_gate: true, optional: true, when: storyboard, maps_to: storyboard,
+     description: "6-9 key shots tiled with core/render/sheet.py; wait for approval (only when asked).",
+     produces: [storyboard.jpg]}
+  - {key: produce, name: "Produce", maps_to: render,
+     description: "Voice -> speech check -> score -> animation -> mix -> render (TECHNIQUE.md).",
+     produces: ["out/*.mp4"]}
+  - {key: deliver, name: "Self-check & deliver", maps_to: export,
+     description: "DIRECTOR.md §11 checks; deliver <name>.mp4, poster.jpg, .srt, TREATMENT.md, CREDITS, build.sh.",
+     produces: [CREDITS, poster.jpg, build.sh]}
+
+setup:
+  - {id: status, title: "Check the library and system tools (no install)", command: "sh plugin/skills/lemo-opuscar/scripts/setup.sh", cwd: "{repo}", env: {LEMO_OPUSCAR_HOME: "{repo}"}}
+  - {id: deps, title: "Install the core tier (npm packages, headless Chromium, Python .venv) ~350 MB", command: "sh plugin/skills/lemo-opuscar/scripts/setup.sh deps", cwd: "{repo}", env: {LEMO_OPUSCAR_HOME: "{repo}"}}
+  - {id: deps-voice, title: "Add the voice tier (Kokoro + model, edge-tts, faster-whisper) ~0.55 GB", command: "sh plugin/skills/lemo-opuscar/scripts/setup.sh deps voice", cwd: "{repo}", env: {LEMO_OPUSCAR_HOME: "{repo}"}}
+  - {id: deps-music, title: "Add the music tier (numba, for pluck.py) ~140 MB", command: "sh plugin/skills/lemo-opuscar/scripts/setup.sh deps music", cwd: "{repo}", env: {LEMO_OPUSCAR_HOME: "{repo}"}}
+
+allowed_tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+  - "Bash(node *)"
+  - "Bash(sh *)"
+  - "Bash(python3 *)"
+  - "Bash({repo}/.venv/bin/python *)"
+  - "Bash(.venv/bin/python *)"
+  - "Bash(ffmpeg *)"
+  - "Bash(ffprobe *)"
+  - "Bash(mkdir *)"
+  - "Bash(cp *)"
+  - "Bash(ls *)"
+  - "Bash(cd *)"
+  - "Bash(grep *)"
+  - "Bash(spacestudio-slot *)"
+
+env:
+  # setup.sh: LEMO_OPUSCAR_HOME = where the library lives. Pointing it at the existing clone means
+  # setup.sh uses it as it is (no clone, no fetch: the git fetch/reset only runs for a clone it
+  # manages itself, marked with `git config lemo.managed true`).
+  LEMO_OPUSCAR_HOME: "{repo}"

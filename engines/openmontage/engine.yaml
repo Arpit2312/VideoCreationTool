@@ -1,0 +1,163 @@
+# SpaceStudio engine manifest: OpenMontage (OpenMontageInc/OpenMontage), AGPL-3.0.
+# SpaceStudio never imports or copies its code: Claude runs it as a separate program and SpaceStudio
+# reads its JSON files (checkpoint_<stage>.json, events.jsonl). Checked against main @ 2e003e6:
+# CLAUDE.md -> AGENT_GUIDE.md, Makefile, README.md, .env.example, lib/paths.py, lib/checkpoint.py,
+# lib/pipeline_loader.py, pipeline_defs/*.yaml, styles/*.yaml, tools/audio/piper_tts.py,
+# tools/video/direct_clip_search.py.
+id: openmontage
+name: OpenMontage
+description: >-
+  Agent-first multi-pipeline video production: ~180 tools, 13 pipeline manifests with stage director
+  skills, checkpointed stages with enforced approval gates, Remotion / HyperFrames / FFmpeg
+  composition, Piper offline TTS, Archive.org / NASA / Wikimedia footage retrieval.
+license: AGPL-3.0
+repo:
+  url: https://github.com/OpenMontageInc/OpenMontage
+  default_dir: OpenMontage
+adapter: spacestudio.engines.openmontage.OpenMontageAdapter
+
+invocation:
+  kind: claude-cwd
+  # OpenMontage is driven from its repo root (CLAUDE.md says: read AGENT_GUIDE.md first; tools import
+  # as `tools.*` / `lib.*`, so Python must run with cwd = repo). The SpaceStudio lane cwd is
+  # <workspace>/work/openmontage, so: the repo is passed with --add-dir, the prompt tells Claude to
+  # read <repo>/AGENT_GUIDE.md, and every OpenMontage command runs as `cd <repo> && <python> ...`.
+  # OPENMONTAGE_PROJECTS_DIR (lib/paths.py, read at import) is set in the lane env to the lane cwd,
+  # so projects/checkpoints/events land in <workspace>/work/openmontage/<project-id>/, never in the repo.
+  guide_file: AGENT_GUIDE.md
+  projects_env: OPENMONTAGE_PROJECTS_DIR
+
+requires:
+  commands: [ffmpeg, ffprobe, node, npx]
+  python: ">=3.10"                            # README "Python 3.10+"; .python-version pins 3.11
+  node: "^22.23.4 || ^24.22.1 || ^26.12.1"   # remotion-composer/package.json engines
+  python_modules: [yaml, pydantic, jsonschema, PIL, numpy, requests, dotenv]
+
+health:
+  expected_files:
+    - AGENT_GUIDE.md
+    - CLAUDE.md
+    - Makefile
+    - requirements.txt
+    - .env.example
+    - lib/checkpoint.py
+    - lib/paths.py
+    - lib/pipeline_loader.py
+    - tools/tool_registry.py
+    - tools/audio/piper_tts.py
+    - tools/video/direct_clip_search.py
+    - remotion-composer/package.json
+
+capabilities:
+  research: {supported: true, detail: "research stage (live web search) in explainer-type pipelines."}
+  concept: {supported: true, detail: "proposal stage: concepts, tool plan, cost estimate (gated)."}
+  script: {supported: true, detail: "script stage (gated)."}
+  storyboard: {supported: true, detail: "scene_plan stage (gated)."}
+  asset_acquisition: {supported: true, detail: "direct_clip_search / corpus_builder over Archive.org, NASA, Wikimedia (no key) and Pexels/Pixabay/Unsplash (free keys). Footage and images."}
+  narration: {supported: true, detail: "piper_tts (local, offline; needs `piper` on PATH and a voice model). Paid TTS providers exist but are blocked in zero-cost mode."}
+  scene_render: {supported: true, detail: "video_compose with render_runtime remotion / hyperframes / ffmpeg (edit -> compose stages)."}
+  sound_design: {supported: true, detail: "audio_mixer, music_library (music_library/ folder); generated music needs paid keys."}
+  captions: {supported: true, detail: "subtitles with word-level timing; remotion_caption_burn."}
+  render: {supported: true, detail: "compose stage -> renders/final.mp4."}
+  native_pipeline: {supported: true, detail: "Any pipeline_defs/*.yaml pipeline, checkpoint by checkpoint."}
+
+options:
+  # Parsed at load time: pipelines from pipeline_defs/*.yaml (name, description, category, stability,
+  # stages with human_approval_default); playbooks from styles/*.yaml (+ styles/custom/*.yaml).
+  options_from: pipeline_defs/*.yaml
+  playbooks_from: styles/*.yaml
+  # Pipelines with a documented zero-key path (README "What You Get With Zero API Keys",
+  # Makefile `demo`): image/motion-graphics explainers with Piper + Remotion, local character
+  # animation, real-footage documentary montage. Every other pipeline is marked zero_cost: false
+  # (not verified free) and hidden in zero-cost mode.
+  zero_cost_pipelines: [animated-explainer, animation, character-animation, documentary-montage]
+  hidden_pipelines: [framework-smoke]         # test harness
+  default_pipeline: animated-explainer
+  render_runtimes:
+    - {id: remotion, name: "Remotion (React)", zero_cost: true}
+    - {id: hyperframes, name: "HyperFrames (HTML/GSAP)", zero_cost: true}
+    - {id: ffmpeg, name: "FFmpeg", zero_cost: true}
+
+cost:
+  zero_cost: false                            # free path exists by pipeline; paid providers are auto-loaded from .env
+  # every provider credential in .env.example (plus ATLASCLOUD_API_KEY, which its comments name).
+  # tools/base_tool._load_dotenv fills any of these that are missing or empty from <repo>/.env.
+  paid_env:
+    - FAL_KEY
+    - FAL_AI_API_KEY
+    - MINIMAX_API_KEY
+    - REPLICATE_API_TOKEN
+    - HIGGSFIELD_API_KEY
+    - HIGGSFIELD_API_SECRET
+    - HIGGSFIELD_KEY
+    - KLING_API_KEY
+    - GOOGLE_API_KEY
+    - GEMINI_API_KEY
+    - GOOGLE_APPLICATION_CREDENTIALS
+    - ELEVENLABS_API_KEY
+    - OPENAI_API_KEY
+    - XAI_API_KEY
+    - DOUBAO_SPEECH_API_KEY
+    - FISH_AUDIO_API_KEY
+    - DASHSCOPE_API_KEY
+    - TENCENT_TOKENHUB_API_KEY
+    - SUNO_API_KEY
+    - ARK_API_KEY
+    - HEYGEN_API_KEY
+    - LTX_API_KEY
+    - PIKA_API_KEY
+    - RUNWAY_API_KEY
+    - VOLC_ACCESSKEY
+    - VOLC_SECRETKEY
+    - AZURE_SPEECH_KEY
+    - IDEOGRAM_API_KEY
+    - CARTESIA_API_KEY
+    - INWORLD_API_KEY
+    - BFL_API_KEY
+    - BRIA_API_TOKEN
+    - MISTRAL_API_KEY
+    - MAI_API_KEY
+    - ATLASCLOUD_API_KEY
+  # free developer keys (stock media) and a free Hugging Face token; allowed in zero-cost mode
+  # only when listed in settings.allowed_free_keys
+  free_env: [PEXELS_API_KEY, PIXABAY_API_KEY, UNSPLASH_ACCESS_KEY, HF_TOKEN]
+  notes: >-
+    Free path: Piper TTS, Remotion / HyperFrames / FFmpeg, Archive.org / NASA / Wikimedia footage.
+    Paid providers cost money (README: $0.15-$3 per video). A non-empty paid key in <repo>/.env is
+    live even if SpaceStudio drops it from the child environment, so zero-cost jobs are blocked while
+    one is present. Any cost_snapshot spend > 0 under zero-cost fails the stage.
+
+concurrency:
+  render_heavy_stages: [compose]
+  max_parallel: 1
+  env: {}
+
+setup:
+  - {id: make-setup, title: "make setup (venv, requirements, remotion-composer npm install, piper-tts, HyperFrames cache, .env from .env.example)", command: "make setup", cwd: "{repo}"}
+  - {id: piper-voice, title: "Download the default Piper voice (from piper_tts install_instructions)", command: "python -m piper.download_voices --download-dir ~/.piper/models en_US-lessac-medium", cwd: "{repo}"}
+  - {id: preflight, title: "Show the provider menu (make preflight)", command: "make preflight", cwd: "{repo}"}
+
+allowed_tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+  - "Bash(cd *)"
+  - "Bash({repo}/.venv/bin/python *)"
+  - "Bash(.venv/bin/python *)"
+  - "Bash(python *)"
+  - "Bash(python3 *)"
+  - "Bash(node *)"
+  - "Bash(npx *)"
+  - "Bash(ffmpeg *)"
+  - "Bash(ffprobe *)"
+  - "Bash(mkdir *)"
+  - "Bash(cp *)"
+  - "Bash(ls *)"
+  - "Bash(spacestudio-slot *)"
+
+env:
+  OPENMONTAGE_PROJECTS_DIR: "{lane}"

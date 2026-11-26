@@ -1,0 +1,2 @@
+[console_scripts]
+spacestudio = spacestudio.main:cli

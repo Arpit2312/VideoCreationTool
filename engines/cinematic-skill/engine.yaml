@@ -1,0 +1,135 @@
+# SpaceStudio engine manifest: cinematic-skill (Moh4696/cinematic-skill)
+# Every path, command and flag below was checked against the repo at v1.0.1 (commit bf43556):
+# skills/cinematic-film/SKILL.md, README.md, requirements.txt and each script's argparse.
+id: cinematic-skill
+name: Cinematic Skill
+description: >-
+  Narrated cinematic films drawn entirely in code (Skia): one continuous camera over a board of
+  photos, documents, cards, maps and counters, every hit timed to the narrator's word. Wikimedia
+  Commons images with licences, synthesised sound effects, four caption styles.
+license: MIT
+version: "1.0.1"
+repo:
+  url: https://github.com/Moh4696/cinematic-skill
+  default_dir: cinematic-skill
+adapter: spacestudio.engines.cinematic.CinematicAdapter
+
+invocation:
+  kind: claude-plugin
+  # The repo root has .claude-plugin/marketplace.json (source "./") but no plugin.json.
+  # Verified with Claude Code 2.1.332: `claude --plugin-dir <repo> plugin details cinematic-skill`
+  # loads it as "cinematic-skill@inline" with the skill `cinematic-film` (name derived from the folder).
+  # The prompts also tell Claude to read SKILL.md directly, so the stage works even if the plugin
+  # name differs (the derived name follows the clone's folder name).
+  plugin_dir: "."
+  skill: cinematic-film
+  skill_file: skills/cinematic-film/SKILL.md
+  scripts_dir: skills/cinematic-film/scripts
+
+requires:
+  commands: [ffmpeg, ffprobe]
+  python: ">=3.9"
+  python_modules: [skia, numpy, PIL]          # skia-python, numpy, pillow (requirements.txt); scipy optional
+  ffmpeg: ">=4"
+  ffmpeg_features: {encoders: [libx264], filters: [loudnorm, sidechaincompress]}
+
+health:
+  expected_files:
+    - skills/cinematic-film/SKILL.md
+    - skills/cinematic-film/scripts/check_setup.py
+    - skills/cinematic-film/scripts/render.py
+    - skills/cinematic-film/scripts/fetch_commons.py
+    - skills/cinematic-film/assets/template/script.json
+    - requirements.txt
+  check_command: "{python} skills/cinematic-film/scripts/check_setup.py"
+
+capabilities:
+  research: {supported: true, detail: "Story step: research and fact notes kept alongside script.json (SKILL.md Workflow 1)."}
+  script: {supported: true, detail: "script.json: takes of lines with text, spoken, hero, typed."}
+  storyboard: {supported: true, detail: "beats.md beat table via make_beats.py, with chronology lint (engine gate)."}
+  asset_acquisition: {supported: true, detail: "fetch_commons.py search/category/get: Wikimedia Commons with licence + credit; refuses non-free files. Archive images only (no footage)."}
+  narration: {supported: true, detail: "tts_say.py: macOS say, espeak-ng, or any TTS through --cmd '{txt} {out}'. Needs one of them installed."}
+  scene_render: {supported: true, detail: "render.py: Skia board film, --size WxH, --t0/--t1 window, --workers N, picture-only when --audio is omitted."}
+  sound_design: {supported: true, detail: "render.py --cues, build_sfx.py (synthesised, nothing to license), mix_soundtrack.py (ducking, LUFS)."}
+  captions: {supported: true, detail: "burn_captions.py --style highlighter|clean|paper|redbar, writes an SRT."}
+  render: {supported: true, detail: "Full render with render.py; memory-aware workers."}
+  native_pipeline: {supported: true, detail: "Whole film through the skill's own workflow and its gates."}
+
+options:
+  looks:
+    - {id: wall, name: "Cork evidence wall", zero_cost: true, best_for: "History, true crime, investigation"}
+    - {id: slate, name: "Slate", zero_cost: true, best_for: "History, true crime, investigation"}
+    - {id: studio, name: "Studio", zero_cost: true, best_for: "Product launch, brand or founder story"}
+    - {id: charcoal, name: "Charcoal", zero_cost: true, best_for: "Product launch, brand or founder story"}
+    - {id: blueprint, name: "Blueprint", zero_cost: true, best_for: "Science, engineering, how it works"}
+    - {id: paper, name: "Paper", zero_cost: true, best_for: "Science, engineering, how it works"}
+    - {id: night, name: "Night", zero_cost: true, best_for: "Tech, space, trailers"}
+  grades:                                     # prep_assets.py --grade (GRADES)
+    - {id: bw, name: "Black and white", zero_cost: true}
+    - {id: sepia, name: "Sepia", zero_cost: true}
+    - {id: natural, name: "Natural colour", zero_cost: true}
+  caption_styles:                             # burn_captions.py --style
+    - {id: highlighter, name: "Highlighter", zero_cost: true}
+    - {id: clean, name: "Clean", zero_cost: true}
+    - {id: paper, name: "Paper", zero_cost: true}
+    - {id: redbar, name: "Red bar", zero_cost: true}
+
+cost:
+  zero_cost: true
+  paid_env: []
+  free_env: []
+  notes: "Fully free. Images from Wikimedia Commons (free licences only); voice from say/espeak-ng/any local TTS; SFX synthesised. Claude tokens are not free."
+
+concurrency:
+  render_heavy_stages: [draft, finish]        # native keys; collaborative segment:* are scene_render
+  workers_flag: "--workers"                   # render.py --workers 0 = as many as fit in memory: always pass settings.render_workers
+  max_parallel: 1
+  env: {}
+
+# native-mode stages (the skill's workflow, SKILL.md "Workflow"); produces are relative to the project folder
+stages:
+  - {key: story, name: "Story & beat table", gate: true, engine_gate: true, maps_to: storyboard,
+     description: "Research, write script.json, run make_beats.py and fix every lint warning; approve beats.md (facts included).",
+     produces: [script.json, beats.md]}
+  - {key: images, name: "Images", maps_to: asset_acquisition,
+     description: "List every image in photos.json; fetch_commons.py search/category/get; credits.md.",
+     produces: [photos.json]}
+  - {key: voice, name: "Scratch voice & timing", maps_to: narration,
+     description: "tts_say.py, split_takes.py, build_narration.py; then make_map.py (if needed) and prep_assets.py.",
+     produces: [audio/narration.m4a, audio/timing.json]}
+  - {key: look, name: "Scene & look test", gate: true, engine_gate: true, maps_to: scene_render,
+     description: "Write scene.py, render.py --probe one still per line at 1280x720 and --strip every big move; approve the look.",
+     produces: [scene.py, "out/probe/*.png"]}
+  - {key: draft, name: "30 s draft", gate: true, engine_gate: true, maps_to: preview,
+     description: "Render the first 30 seconds at 1280x720 with the scratch voice; the user watches it.",
+     produces: [out/draft.mp4]}
+  - {key: sound, name: "Sound", maps_to: sound_design,
+     description: "render.py --cues, build_sfx.py, mix_soundtrack.py (optional score).",
+     produces: [audio/mix.m4a]}
+  - {key: finish, name: "Finish", maps_to: render,
+     description: "Full render, burn_captions.py and the SRT, credits.md handed over with the film.",
+     produces: ["out/final*.mp4"]}
+
+setup:
+  - {id: pip, title: "Install the Python packages (skia-python, numpy, pillow, scipy)", command: "pip install -r requirements.txt", cwd: "{repo}"}
+  - {id: check, title: "Check the machine (Python, skia, ffmpeg, fonts, memory)", command: "python3 skills/cinematic-film/scripts/check_setup.py", cwd: "{repo}"}
+
+allowed_tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+  - "Bash(python3 *)"
+  - "Bash(python *)"
+  - "Bash(ffmpeg *)"
+  - "Bash(ffprobe *)"
+  - "Bash(mkdir *)"
+  - "Bash(cp *)"
+  - "Bash(ls *)"
+  - "Bash(cd *)"
+  - "Bash(spacestudio-slot *)"
+
+env: {}
