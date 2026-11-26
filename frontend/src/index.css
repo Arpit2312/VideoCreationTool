@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 246 247 249;
+  --panel: 255 255 255;
+  --panel2: 240 242 245;
+  --line: 222 226 232;
+  --fg: 17 20 26;
+  --muted: 92 100 114;
+  --accent: 79 70 229;
+  color-scheme: light;
+}
+:root.dark {
+  --bg: 11 13 17;
+  --panel: 19 22 28;
+  --panel2: 27 31 39;
+  --line: 42 47 58;
+  --fg: 232 235 240;
+  --muted: 150 158 172;
+  --accent: 129 140 248;
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; }
+body {
+  @apply bg-bg text-fg font-sans antialiased;
+  font-size: 14px;
+}
+
+@layer components {
+  .card { @apply rounded-xl border border-line bg-panel; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium
+      border border-line bg-panel2 text-fg hover:brightness-110 hover:border-muted/50 transition
+      disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent;
+  }
+  .btn-primary { @apply btn bg-accent text-white border-transparent hover:brightness-110; }
+  .btn-danger { @apply btn text-red-600 dark:text-red-300 border-red-500/40; }
+  .btn-ghost { @apply btn bg-transparent border-transparent hover:bg-panel2; }
+  .btn-sm { @apply px-2 py-1 text-xs; }
+  .input {
+    @apply w-full rounded-lg border border-line bg-panel2 px-3 py-1.5 text-sm text-fg placeholder:text-muted/70
+      focus:outline-none focus:ring-2 focus:ring-accent/60;
+  }
+  .label { @apply block text-xs font-medium text-muted mb-1; }
+  .h1 { @apply text-xl font-semibold tracking-tight; }
+  .h2 { @apply text-base font-semibold; }
+  .subtle { @apply text-muted text-xs; }
+  .tab { @apply px-3 py-2 text-sm border-b-2 border-transparent text-muted hover:text-fg whitespace-nowrap; }
+  .tab-active { @apply border-accent text-fg; }
+}
