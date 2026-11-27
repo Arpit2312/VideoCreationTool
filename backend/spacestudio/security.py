@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 from . import workspace
+from .platform_compat import WINDOWS_ENV
 from .workspace import WorkspaceError
 
 BASE_ALLOWLIST = (
     "PATH", "HOME", "LANG", "LC_ALL", "TERM", "USER", "SHELL", "TMPDIR",
-)
+) + WINDOWS_ENV
 CLAUDE_AUTH_VARS = (
     "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL",
 )

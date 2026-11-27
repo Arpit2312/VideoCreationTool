@@ -29,6 +29,34 @@ jobs:
         working-directory: backend
         run: .venv/bin/pytest -q
 
+  backend-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+      - name: Clone engine repositories (read-only references for adapter tests)
+        shell: bash
+        run: |
+          mkdir -p ~/.spacestudio/engines
+          git clone --depth 1 https://github.com/OpenMontageInc/OpenMontage.git ~/.spacestudio/engines/OpenMontage
+          git clone --depth 1 https://github.com/Moh4696/cinematic-skill.git ~/.spacestudio/engines/cinematic-skill
+          git clone --depth 1 https://github.com/lemomo-ai/lemo-opuscar.git ~/.spacestudio/engines/lemo-opuscar
+      - name: Install backend
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install -e ".[dev]"
+      - name: Test backend
+        working-directory: backend
+        run: .venv\Scripts\python -m pytest -q
+
   frontend:
     runs-on: ubuntu-24.04
     steps:

@@ -76,6 +76,7 @@ export default function RepoHealth() {
                 <span className="text-muted break-words min-w-0">{health.data.claude.version || "version unknown"}</span>
               </div>
               {!health.data.claude.ok && <p className="text-xs mt-2">Install Claude Code and sign in (<code>claude</code> in a terminal), or set the binary path in Settings.</p>}
+              {health.data.claude.warning && <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">{health.data.claude.warning}</p>}
               {health.data.claude.simulated && <p className="text-xs text-orange-700 dark:text-orange-300 mt-2">This binary is not the real Claude CLI. Every run is labelled SIMULATED.</p>}
               <div className="mt-3"><ZeroCostBadge on={health.data.zero_cost_ready} /> <span className="subtle">{(health.data.engines_ready?.length ?? 0)} of {health.data.engines_total ?? health.data.engines.length} enabled engines are installed and ready to run at zero cost.{!health.data.zero_cost_ready && " Fix the items below to enable zero-cost production."}</span></div>
             </Section>

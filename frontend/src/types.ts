@@ -220,7 +220,7 @@ export interface EngineInfo {
 export interface HealthReport {
   tools: HealthItem[];
   engines: EngineHealth[];
-  claude: { bin: string; version?: string | null; simulated: boolean; ok: boolean };
+  claude: { bin: string; version?: string | null; simulated: boolean; ok: boolean; warning?: string };
   zero_cost_ready: boolean;
   engines_ready?: string[];
   engines_total?: number;

@@ -12,6 +12,7 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from .platform_compat import default_python
 from pydantic import BaseModel, Field, field_validator
 
 ENV_PREFIX = "SPACESTUDIO_"
@@ -33,7 +34,7 @@ class Settings(BaseModel):
     claude_permission_mode: str = "acceptEdits"
     ffmpeg: str = "ffmpeg"
     ffprobe: str = "ffprobe"
-    python_bin: str = "python3"
+    python_bin: str = Field(default_factory=default_python)
     # limits
     max_claude_sessions: int = 2
     max_render_jobs: int = 1

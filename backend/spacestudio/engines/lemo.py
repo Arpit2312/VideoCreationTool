@@ -19,6 +19,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Optional
 
+from ..platform_compat import find_bash
 from ..workflow.stages import StageSpec
 from .base import DetectedStage, EngineHealth, HealthItem
 from .generic import (ManifestAdapter, config_dict, git_config_value, is_collaborative, run_cmd, segment_id,
@@ -122,9 +123,9 @@ class LemoAdapter(ManifestAdapter):
         is_lib = (lib / "AGENTS.md").is_file() and (lib / "core" / "render").is_dir()
         tiers: Optional[tuple[bool, bool, bool]] = None
         notes: list[str] = []
-        if is_lib and not managed and self.setup_sh.is_file() and shutil.which("sh"):
+        if is_lib and not managed and self.setup_sh.is_file() and find_bash():
             env = {**os.environ, "LEMO_OPUSCAR_HOME": str(lib)}
-            code, out = run_cmd(["sh", str(self.setup_sh)], cwd=lib, timeout=60, env=env)
+            code, out = run_cmd([find_bash(), str(self.setup_sh)], cwd=lib, timeout=60, env=env)
             m = _TIER.search(out or "")
             if m:
                 tiers = tuple(x == "✓" for x in m.groups())  # type: ignore[assignment]

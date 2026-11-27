@@ -24,7 +24,7 @@ import time
 import uuid
 from pathlib import Path
 
-VALUE_FLAGS = {"--output-format", "--resume", "-r", "--permission-mode", "--append-system-prompt", "--agents",
+VALUE_FLAGS = {"--output-format", "--resume", "-r", "--permission-mode", "--append-system-prompt", "--append-system-prompt-file", "--agents",
                "--model", "--effort", "--max-budget-usd", "--json-schema", "--plugin-dir", "--tools",
                "--session-id", "--input-format"}
 VARIADIC_FLAGS = {"--allowedTools", "--allowed-tools", "--add-dir", "--disallowedTools"}

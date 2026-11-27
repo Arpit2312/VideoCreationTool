@@ -15,10 +15,13 @@ import json
 import os
 import shutil
 import signal
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+from ..platform_compat import new_process_group_kwargs, terminate_tree
 
 from ..security import redact
 
@@ -98,17 +101,33 @@ class ClaudeRunner:
 
     def resolve_bin(self) -> str:
         b = self.claude_bin
-        found = shutil.which(b) if os.sep not in b else (b if os.access(b, os.X_OK) else None)
+        found = shutil.which(b) if os.sep not in b and "/" not in b else (b if Path(b).is_file() else None)
         if not found:
             raise ClaudeNotFound(
-                f"Claude Code CLI not found ({b!r}). Install it (npm install -g @anthropic-ai/claude-code), "
+                f"Claude Code CLI not found ({b!r}). Install it (https://claude.com/claude-code), "
                 "log in with `claude`, or set claude_bin in Settings."
             )
         return found
 
+    def launcher(self) -> list[str]:
+        """argv prefix that starts the CLI. A .py (the test fake) runs with this Python. On Windows an npm
+        `claude.cmd` shim would route arguments through cmd.exe, so run its node script directly."""
+        b = self.resolve_bin()
+        low = b.lower()
+        if low.endswith(".py"):
+            return [sys.executable, b]
+        if os.name == "nt" and low.endswith((".cmd", ".bat")):
+            cli = Path(b).parent / "node_modules" / "@anthropic-ai" / "claude-code" / "cli.js"
+            node = shutil.which("node")
+            if cli.is_file() and node:
+                return [node, str(cli)]
+        return [b]
+
     # ------------------------------------------------------------------ command
     def build_command(self, req: RunRequest) -> list[str]:
-        cmd = [self.resolve_bin(), "-p", req.prompt, "--output-format", "stream-json", "--verbose"]
+        # The prompt goes through stdin and long texts through files: Windows caps a command line at
+        # ~32k characters and cmd.exe would reinterpret characters like & | inside them.
+        cmd = [*self.launcher(), "-p", "--output-format", "stream-json", "--verbose"]
         if req.resume_session:
             cmd += ["--resume", req.resume_session]
         mode = req.permission_mode or getattr(self.settings, "claude_permission_mode", "acceptEdits")
@@ -121,9 +140,9 @@ class ClaudeRunner:
         for d in req.plugin_dirs:
             cmd += ["--plugin-dir", str(d)]
         if req.append_system_prompt:
-            cmd += ["--append-system-prompt", req.append_system_prompt]
+            cmd += ["--append-system-prompt-file", str(self._side_file(req, "system.md", req.append_system_prompt))]
         if req.agents:
-            cmd += ["--agents", json.dumps(req.agents)]
+            cmd += ["--agents", str(self._side_file(req, "agents.json", json.dumps(req.agents, indent=1)))]
         if req.model:
             cmd += ["--model", req.model]
         if req.effort:
@@ -131,6 +150,15 @@ class ClaudeRunner:
         if req.max_budget_usd is not None:
             cmd += ["--max-budget-usd", f"{float(req.max_budget_usd):.2f}"]
         return cmd
+
+    @staticmethod
+    def _side_file(req: RunRequest, suffix: str, text: str) -> Path:
+        name = Path(req.log_path).name
+        stem = name[:-len(".jsonl")] if name.endswith(".jsonl") else Path(name).stem
+        f = Path(req.log_path).with_name(f"{stem}.{suffix}")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+        return f
 
     # ------------------------------------------------------------------ run
     async def run(self, req: RunRequest, on_event: Optional[Callable[[dict], None]] = None) -> RunResult:
@@ -140,14 +168,21 @@ class ClaudeRunner:
         req.log_path.parent.mkdir(parents=True, exist_ok=True)
         Path(req.cwd).mkdir(parents=True, exist_ok=True)
 
-        popen_kw: dict[str, Any] = {}
-        if os.name == "posix":
-            popen_kw["start_new_session"] = True
+        popen_kw: dict[str, Any] = new_process_group_kwargs()
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(req.cwd), env={k: str(v) for k, v in req.env.items()},
-            stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             limit=STDOUT_LIMIT, **popen_kw,
         )
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(req.prompt.encode("utf-8"))
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the CLI exited early; its stderr/exit code explain why
+        finally:
+            if proc.stdin is not None:
+                proc.stdin.close()
         self._procs[key] = proc
         self._loops[key] = asyncio.get_running_loop()
         self._cancelled.discard(key)
@@ -296,13 +331,8 @@ class ClaudeRunner:
 
 
 def _signal_group(pid: int, sig: int) -> None:
-    try:
-        if os.name == "posix":
-            os.killpg(os.getpgid(pid), sig)
-        else:  # pragma: no cover
-            os.kill(pid, sig)
-    except (ProcessLookupError, PermissionError, OSError):
-        pass
+    """Stop the run's whole process tree: SIGTERM -> graceful, SIGKILL -> forced (taskkill /T on Windows)."""
+    terminate_tree(pid, force=(sig == getattr(signal, "SIGKILL", None)))
 
 
 def _safe_emit(emit: Callable[[dict], None], ev: dict) -> None:

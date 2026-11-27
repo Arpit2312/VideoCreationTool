@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import re
 from pathlib import Path
 from typing import Any, Optional
 
+from ..platform_compat import IS_WINDOWS, find_bash
 from ..engines.base import EngineHealth, HealthItem
 
 
@@ -32,19 +34,32 @@ def check_version(id_: str, name: str, binary: str, args: list[str], fix: str, o
     return HealthItem(id_, name, "ok", f"{_first_line(out)} ({path})")
 
 
+TESTED_CLAUDE = (2, 1, 332)
+
+
 def claude_info(settings: Any, runner: Any) -> dict:
     b = settings.claude_bin
     simulated = runner.is_simulated()
     try:
         path = runner.resolve_bin()
+        launcher = runner.launcher()
     except Exception:
         return {"bin": b, "version": None, "simulated": simulated, "ok": False}
-    code, out = _run([path, "--version"], timeout=30)
-    return {"bin": path, "version": _first_line(out) if code == 0 else None, "simulated": simulated, "ok": code == 0}
+    code, out = _run([*launcher, "--version"], timeout=30)
+    version = _first_line(out) if code == 0 else None
+    info = {"bin": path, "version": version, "simulated": simulated, "ok": code == 0}
+    # SpaceStudio's CLI flags were verified against Claude Code 2.1.332; older builds may lack some.
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", version or "")
+    if m and not simulated and tuple(map(int, m.groups())) < TESTED_CLAUDE:
+        info["warning"] = (f"Claude Code {m.group(0)} is older than the tested {'.'.join(map(str, TESTED_CLAUDE))}; "
+                           "run `claude update` (some options SpaceStudio uses may be missing)")
+    return info
 
 
 def ffmpeg_items(settings: Any) -> list[HealthItem]:
-    fix = "Install FFmpeg with libx264 (sudo apt install ffmpeg) or set ffmpeg in Settings"
+    fix = ("Install FFmpeg 7+: winget install Gyan.FFmpeg (then open a new terminal), or set ffmpeg in Settings"
+           if IS_WINDOWS else
+           "Install FFmpeg 7+ with libx264 (a static build from johnvansickle.com/ffmpeg) or set ffmpeg in Settings")
     items = [check_version("ffmpeg", "FFmpeg", settings.ffmpeg, ["-hide_banner", "-version"], fix)]
     if items[0].status == "ok":
         path = shutil.which(settings.ffmpeg)
@@ -72,11 +87,21 @@ def disk_item(settings: Any) -> HealthItem:
 
 def tool_items(settings: Any) -> list[HealthItem]:
     items = ffmpeg_items(settings)
-    items.append(check_version("node", "Node.js", "node", ["--version"], "Install Node.js 22+ (needed by some engines)"))
-    items.append(check_version("python", "Python", settings.python_bin, ["--version"], "Install Python 3.11-3.13"))
-    items.append(check_version("git", "git", "git", ["--version"], "Install git (sudo apt install git)"))
+    win = IS_WINDOWS
+    items.append(check_version("node", "Node.js", "node", ["--version"],
+                               "winget install OpenJS.NodeJS.LTS" if win else "Install Node.js 22.23+ (nodesource.com)"))
+    items.append(check_version("python", "Python", settings.python_bin, ["--version"],
+                               "winget install Python.Python.3.12" if win else "Install Python 3.11-3.13"))
+    items.append(check_version("git", "git", "git", ["--version"],
+                               "winget install Git.Git" if win else "Install git (sudo apt install git)"))
+    if win:
+        bash = find_bash()
+        items.append(HealthItem("bash", "Git Bash", "ok" if bash else "error",
+                                bash or "bash.exe from Git for Windows not found",
+                                "" if bash else "winget install Git.Git, or set CLAUDE_CODE_GIT_BASH_PATH to bash.exe"))
     items.append(check_version("espeak-ng", "espeak-ng (free voice)", "espeak-ng", ["--version"],
-                               "Optional: sudo apt install espeak-ng (free scratch voice)", optional=True))
+                               ("Optional: install espeak-ng from github.com/espeak-ng/espeak-ng/releases (free scratch voice)"
+                                if win else "Optional: sudo apt install espeak-ng (free scratch voice)"), optional=True))
     items.append(check_version("piper", "Piper (free voice)", "piper", ["--help"],
                                "Optional: install Piper TTS for a better free voice", optional=True))
     items.append(disk_item(settings))

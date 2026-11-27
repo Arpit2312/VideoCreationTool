@@ -65,26 +65,16 @@ def render_slot(settings: Any, timeout_s: float = 6 * 3600) -> Iterator[Optional
     n = max(1, int(os.environ.get("SPACESTUDIO_RENDER_SLOTS") or getattr(settings, "max_render_jobs", 1) or 1))
     d = Path(settings.data_dir) / "slots"
     d.mkdir(parents=True, exist_ok=True)
-    try:
-        import fcntl
-    except ImportError:  # pragma: no cover - non-POSIX: no cross-process semaphore
-        yield None
-        return
+    from ..platform_compat import try_lock
+
     deadline = time.monotonic() + timeout_s
     while True:
         for i in range(n):
-            fh = open(d / f"render.{i}.lock", "a+")
-            try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                fh.close()
-                continue
-            try:
+            with try_lock(d / f"render.{i}.lock") as got:
+                if not got:
+                    continue
                 yield i
-            finally:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-                fh.close()
-            return
+                return
         if time.monotonic() > deadline:
             raise NativeError("timed out waiting for a render slot")
         time.sleep(0.5)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import glob as globlib
 import json
+import sys
 import logging
 import os
 import shutil
@@ -19,6 +20,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from sqlmodel import Session, select
 
+from ..platform_compat import normalize_shell_paths, shell_path, terminate_tree, windows_tool_aliases
 from .. import workspace
 from ..audit import audit
 from ..claude import prompts
@@ -911,14 +913,24 @@ class Orchestrator:
             "SPACESTUDIO_WORKSPACE": str(ws),
             "SPACESTUDIO_STAGE": st.key,
         })
+        # The render semaphore (scripts/spacestudio-slot, a sh wrapper) runs with SpaceStudio's own Python.
+        engine_env["SPACESTUDIO_PYTHON"] = shell_path(sys.executable)
         env = child_env(self.settings, engine_env, zero_cost=cfg.zero_cost,
                         approved_paid_providers=cfg.approved_paid_providers, paid_env_names=paid,
                         free_env_names=self.free_env_names())
+        scripts_dir = str(prompts.SLOT_BIN.parent)
+        env["PATH"] = scripts_dir + os.pathsep + env.get("PATH", "")
+        # Windows: Claude's Bash tool is Git Bash, which mangles C:\ paths; give it C:/ paths instead.
+        roots = [ws, self.settings.data_dir, prompts.SLOT_BIN.parent.parent, cwd, *add_dirs, *plugin_dirs,
+                 getattr(self.settings, "engines_dir", None)]
+        protocol = normalize_shell_paths(prompts.stage_protocol(cfg.zero_cost), roots)
+        prompt = normalize_shell_paths(prompt, roots)
+        tools = windows_tool_aliases([normalize_shell_paths(t, roots) for t in tools])
         sess = s.exec(select(ClaudeSession).where(ClaudeSession.video_id == v.id, ClaudeSession.lane == lane)).first()
         return RunRequest(
             prompt=prompt, cwd=cwd, lane=lane, log_path=log_path,
             resume_session=sess.session_id if sess else None, add_dirs=add_dirs, plugin_dirs=plugin_dirs,
-            env=env, allowed_tools=tools, append_system_prompt=prompts.stage_protocol(cfg.zero_cost),
+            env=env, allowed_tools=tools, append_system_prompt=protocol,
             agents=agent_defs(), model=cfg.claude_model, effort=cfg.claude_effort,
             max_budget_usd=cfg.max_claude_budget_usd, timeout_s=int(self.settings.stage_timeout_minutes) * 60,
             run_key=st.id)
@@ -1244,9 +1256,7 @@ class Orchestrator:
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                         alive = False
                     if alive:  # orphan from a crashed backend: its output pipe is gone; stop it cleanly
-                        from ..claude.runner import _signal_group
-                        import signal
-                        _signal_group(r.pid, signal.SIGTERM)
+                        terminate_tree(r.pid)
                 r.state, r.ended_at = "interrupted", now()
                 s.add(r)
             for st in s.exec(select(Stage).where(Stage.status == StageStatus.running.value)).all():

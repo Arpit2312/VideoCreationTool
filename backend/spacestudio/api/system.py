@@ -97,15 +97,16 @@ def generate_ideas(req: IdeasRequest) -> dict:
     if o.runner.is_simulated():
         return {"ideas": _sample_ideas(req), "simulated": True}
     try:
-        b = o.runner.resolve_bin()
+        launcher = o.runner.launcher()
     except Exception as e:
         raise HTTPException(503, str(e)) from None
-    cmd = [b, "-p", prompts.ideas_prompt(req.topic, req.count, req.video_type), "--output-format", "json",
+    cmd = [*launcher, "-p", "--output-format", "json",
            "--json-schema", json.dumps(prompts.IDEAS_SCHEMA), "--tools", ""]
     env = child_env(o.settings, {}, zero_cost=True, paid_env_names=o.paid_env_names())
     tmo = int(getattr(o.settings, "ideas_timeout_s", 90))
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=tmo, env=env,
+        p = subprocess.run(cmd, input=prompts.ideas_prompt(req.topic, req.count, req.video_type),
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=tmo, env=env,
                            cwd=str(o.settings.data_dir))
     except subprocess.TimeoutExpired:
         raise HTTPException(504, f"Claude did not answer within {tmo}s") from None

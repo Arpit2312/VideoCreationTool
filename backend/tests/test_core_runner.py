@@ -40,12 +40,15 @@ def test_build_command_uses_verified_flags(tmp_path):
     r = ClaudeRunner(settings())
     cmd = r.build_command(req(make_ws(tmp_path), resume_session="abc"))
     for flag in ("-p", "--output-format", "--verbose", "--resume", "--permission-mode", "--allowedTools",
-                 "--add-dir", "--plugin-dir", "--append-system-prompt", "--agents", "--model", "--effort",
+                 "--add-dir", "--plugin-dir", "--append-system-prompt-file", "--agents", "--model", "--effort",
                  "--max-budget-usd"):
         assert flag in cmd, flag
-    assert cmd[1] == "-p" and cmd[2].startswith("SPACESTUDIO_STAGE=")
+    # the prompt travels on stdin, long texts in side files: nothing near the Windows command-line limit
+    assert not any(a.startswith("SPACESTUDIO_STAGE=") for a in cmd)
+    assert sum(len(a) for a in cmd) < 8000
     assert cmd[cmd.index("--output-format") + 1] == "stream-json"
-    agents = json.loads(cmd[cmd.index("--agents") + 1])
+    assert Path(cmd[cmd.index("--append-system-prompt-file") + 1]).read_text().strip()
+    agents = json.loads(Path(cmd[cmd.index("--agents") + 1]).read_text())
     assert {"researcher", "fact-checker", "scriptwriter", "storyboard-artist", "asset-librarian",
             "voice-director", "qa-reviewer"} <= set(agents)
     assert all("description" in a and "prompt" in a for a in agents.values())

@@ -33,26 +33,65 @@ They're never bypassed. *Request changes* sends your feedback back into the same
 
 ## Requirements
 
-- Linux or **WSL2 (Ubuntu)** on Windows
-- Python 3.11–3.13, Node 22.23+, Git
-- [Claude Code](https://claude.com/claude-code), signed in
-- FFmpeg 7+ (lemo-opuscar rejects 6.x; Ubuntu 24.04 ships 6.1, so use a static build)
-- Optional: espeak-ng or Piper (free voices), a GPU (lemo 3D/WebGL styles)
+Windows 10/11, Linux or macOS. Install these first:
 
-## Install and run
+- Python 3.11–3.13
+- Node 22.23+ (or 24.22+)
+- Git (on Windows, Git for Windows, which includes Git Bash)
+- FFmpeg 7+
+- [Claude Code](https://claude.com/claude-code), signed in
+
+Optional: espeak-ng or Piper for free voices, and a GPU for lemo-opuscar's 3D/WebGL styles.
+
+## Run on Windows (no WSL needed)
+
+In PowerShell, install anything missing. Skip what you already have; open a new terminal afterwards.
 
 ```bash
-mkdir -p ~/.spacestudio/engines && cd ~/.spacestudio/engines
-git clone https://github.com/Moh4696/cinematic-skill.git
-git clone https://github.com/lemomo-ai/lemo-opuscar.git
-git clone https://github.com/OpenMontageInc/OpenMontage.git
+winget install Git.Git Python.Python.3.12 OpenJS.NodeJS.LTS Gyan.FFmpeg
+```
+
+Update Claude Code. SpaceStudio was tested with 2.1.332:
+
+```bash
+claude update
+```
+
+Get SpaceStudio:
+
+```bash
+git clone -b claude/determined-cannon-396fzp https://github.com/Arpit2312/VideoCreationTool.git $HOME\VideoCreationTool
+```
+
+Get the three engine repos:
+
+```bash
+mkdir $HOME\.spacestudio\engines -Force; cd $HOME\.spacestudio\engines; git clone https://github.com/Moh4696/cinematic-skill.git; git clone https://github.com/lemomo-ai/lemo-opuscar.git; git clone https://github.com/OpenMontageInc/OpenMontage.git
+```
+
+Start SpaceStudio:
+
+```bash
+cd $HOME\VideoCreationTool; powershell -ExecutionPolicy Bypass -File run.ps1
+```
+
+The browser opens at http://127.0.0.1:8000. On Windows, Claude Code and the engines' shell scripts run in Git Bash. SpaceStudio finds it automatically, or you can set `CLAUDE_CODE_GIT_BASH_PATH`.
+
+## Run on Linux / macOS / WSL
+
+```bash
+mkdir -p ~/.spacestudio/engines && cd ~/.spacestudio/engines && git clone https://github.com/Moh4696/cinematic-skill.git && git clone https://github.com/lemomo-ai/lemo-opuscar.git && git clone https://github.com/OpenMontageInc/OpenMontage.git
 ```
 
 ```bash
 cd /path/to/VideoCreationTool && ./run.sh
 ```
 
-Then open http://127.0.0.1:8000. **Repository Health** lists what each engine is missing and shows the setup command each repository documents. That command runs only after you confirm it in the UI.
+Then open http://127.0.0.1:8000.
+
+## First steps in the app
+
+**Repository Health** lists what each engine is missing and the setup command each repository documents. A command runs only after you confirm it in the UI. Start with cinematic-skill, which is the quickest to set up. Then use **New Video**.
 
 ## Zero-cost mode
 

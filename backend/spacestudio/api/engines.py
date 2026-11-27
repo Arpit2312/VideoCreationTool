@@ -181,8 +181,11 @@ def setup_engine(engine_id: str, body: EngineSetupBody) -> Run:
             fh.write(f"$ {command}\n(cwd {cwd})\n\n")
             fh.flush()
             try:
-                p = subprocess.Popen(command, shell=True, cwd=str(cwd), env=env, stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True, start_new_session=True)
+                from ..platform_compat import new_process_group_kwargs, shell_command
+
+                p = subprocess.Popen(shell_command(command), cwd=str(cwd), env=env, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                                     **new_process_group_kwargs())
                 with session_scope() as s2:
                     r = s2.get(Run, run.id)
                     r.pid = p.pid
