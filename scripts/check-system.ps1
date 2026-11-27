@@ -20,8 +20,12 @@ if (-not $wsl) {
     Show "wsl" $false "" "PowerShell as Administrator: wsl --install -d Ubuntu  (then restart)"
     exit
 }
-$distros = (wsl -l -q 2>$null) -replace "`0", "" | Where-Object { $_.Trim() }
-if (-not $distros) {
+# When WSL itself is not installed, `wsl -l` prints an install prompt instead of a distro list
+# (and may wait for a key press), so check the exit code and the text before trusting it.
+$out = (cmd /c "wsl -l -q < NUL" 2>&1 | Out-String) -replace "`0", ""
+$distros = $out -split "`r?`n" | Where-Object { $_.Trim() }
+$notInstalled = ($LASTEXITCODE -ne 0) -or ($out -match "install|not installed|wslinstall")
+if ($notInstalled -or -not $distros) {
     Show "ubuntu" $false "" "PowerShell as Administrator: wsl --install -d Ubuntu  (then restart)"
     exit
 }
