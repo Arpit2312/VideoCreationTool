@@ -999,20 +999,24 @@ class Orchestrator:
         with self.lock, session_scope() as s:
             st = s.get(Stage, stage_id)
             run = s.get(Run, run_id)
-            run.ended_at, run.exit_code, run.cost_usd = now(), result.exit_code, result.cost_usd
+            # On a resumed session the CLI reports the session's cumulative total_cost_usd (verified with
+            # CLI 2.1.332: research 1.03 -> factcheck 1.66 -> concept 1.99 in one session). Charge each
+            # stage only the increase over what this session had already been charged.
+            cost = self._stage_cost_delta(s, video_id, lane, req.resume_session, result.session_id, result.cost_usd)
+            run.ended_at, run.exit_code, run.cost_usd = now(), result.exit_code, cost
             run.model = result.model or run.model
             if result.session_id:
-                self._upsert_session(s, video_id, lane, result.session_id, result.model, str(req.cwd), result.cost_usd)
+                self._upsert_session(s, video_id, lane, result.session_id, result.model, str(req.cwd), cost)
             if st is None or st.status != StageStatus.running.value or result.cancelled:
                 run.state = "cancelled"
                 s.add(run)
                 if st is not None:
-                    st.cost_usd = (st.cost_usd or 0.0) + result.cost_usd
+                    st.cost_usd = (st.cost_usd or 0.0) + cost
                     s.add(st)
                 s.commit()
                 return
             v = self._video(s, st)
-            st.cost_usd = (st.cost_usd or 0.0) + result.cost_usd
+            st.cost_usd = (st.cost_usd or 0.0) + cost
             if result.session_id:
                 st.session_id = result.session_id
             new_events = [e for e in workspace.read_events(ws, events_from)
@@ -1034,6 +1038,16 @@ class Orchestrator:
             self._after_change(s, self._video(s, st), st)
         else:
             s.commit()
+
+    @staticmethod
+    def _stage_cost_delta(s: Session, video_id: str, lane: str, resumed: Optional[str], session_id: Optional[str],
+                          reported: float) -> float:
+        reported = float(reported or 0.0)
+        if not resumed or not session_id or resumed != session_id:
+            return reported               # fresh (or forked) session: the reported total is this run's cost
+        cs = s.exec(select(ClaudeSession).where(ClaudeSession.video_id == video_id, ClaudeSession.lane == lane)).first()
+        prev = float(cs.total_cost_usd or 0.0) if cs is not None and cs.session_id == session_id else 0.0
+        return round(reported - prev, 6) if reported >= prev else reported
 
     def _upsert_session(self, s: Session, video_id: str, lane: str, session_id: str, model: Optional[str],
                         cwd: str, cost: float) -> None:
