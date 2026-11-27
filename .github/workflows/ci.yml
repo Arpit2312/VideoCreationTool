@@ -62,10 +62,50 @@ jobs:
         shell: powershell
         run: |
           Remove-Item -Recurse -Force backend\.venv
-          powershell -ExecutionPolicy Bypass -File run.ps1 -SetupOnly
+          powershell -ExecutionPolicy Bypass -File run.ps1 -SetupOnly -NoUpdate -SkipSetup
           if ($LASTEXITCODE -ne 0) { exit 1 }
           if (-not (Test-Path backend\.venv\Scripts\spacestudio.exe)) { exit 1 }
           if (-not (Test-Path frontend\dist\index.html)) { exit 1 }
+
+  windows-engine-setup:
+    # setup.ps1 really installs the engines' packages (lemo core + Kokoro voice, OpenMontage venv + Remotion,
+    # cinematic Python packages) the way run.ps1 does on a user's PC. winget steps are skipped (-SkipSystem).
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+      - name: Clone engines next to the checkout (the layout run.ps1 uses)
+        shell: bash
+        run: |
+          mkdir -p ../engines
+          git clone --depth 1 https://github.com/Moh4696/cinematic-skill.git ../engines/cinematic-skill
+          git clone --depth 1 https://github.com/lemomo-ai/lemo-opuscar.git ../engines/lemo-opuscar
+          git clone --depth 1 https://github.com/OpenMontageInc/OpenMontage.git ../engines/OpenMontage
+      - name: setup.ps1 reports what is missing
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File setup.ps1 -SkipSystem -CheckOnly
+          if ($LASTEXITCODE -ne 1) { Write-Host "expected missing packages on a fresh machine"; exit 1 }
+      - name: setup.ps1 installs everything
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File setup.ps1 -SkipSystem -Yes
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Nothing left missing
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File setup.ps1 -SkipSystem -CheckOnly
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
   frontend:
     runs-on: ubuntu-24.04

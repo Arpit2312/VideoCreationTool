@@ -1,7 +1,7 @@
 # SpaceStudio launcher for Windows (PowerShell). Builds what is missing, then serves http://127.0.0.1:8000
 #   powershell -ExecutionPolicy Bypass -File run.ps1
-param([switch]$SetupOnly)
-$ErrorActionPreference = "Stop"
+param([switch]$SetupOnly, [switch]$NoUpdate, [switch]$SkipSetup, [switch]$Yes)
+$ErrorActionPreference = "Continue"   # native tools write progress to stderr; each step checks its exit code
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Everything heavy lives next to the install folder (e.g. E:\SpaceStudio\...), not on C:.
@@ -25,6 +25,32 @@ $env:PYTHONIOENCODING = "utf-8"
 Write-Host "Data:    $env:SPACESTUDIO_DATA_DIR"
 Write-Host "Engines: $env:SPACESTUDIO_ENGINES_DIR"
 Write-Host "Caches:  $(Join-Path $Base 'cache')"
+
+# 1. Keep SpaceStudio up to date (fast-forward only; local edits are never touched).
+if (-not $NoUpdate -and (Test-Path (Join-Path $Root ".git"))) {
+    $dirty = git -C $Root status --porcelain --untracked-files=no
+    if (-not $dirty) {
+        $before = git -C $Root rev-parse HEAD
+        git -C $Root pull --ff-only -q 2>&1 | Out-Null
+        $after = git -C $Root rev-parse HEAD
+        if ($before -ne $after) {
+            Write-Host "==> Updated SpaceStudio to $($after.Substring(0,7)). Restarting the launcher with the new version..." -ForegroundColor Cyan
+            $fwd = @("-NoUpdate")
+            if ($SetupOnly) { $fwd += "-SetupOnly" }; if ($SkipSetup) { $fwd += "-SkipSetup" }; if ($Yes) { $fwd += "-Yes" }
+            & powershell -ExecutionPolicy Bypass -File (Join-Path $Root "run.ps1") @fwd
+            exit $LASTEXITCODE
+        }
+    } else {
+        Write-Host "Local changes in $Root - skipping the automatic update." -ForegroundColor Yellow
+    }
+}
+
+# 2. Dependencies: list what is missing, ask once, install everything.
+if (-not $SkipSetup) {
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $Root "setup.ps1") @(if ($Yes) { "-Yes" })
+    # setup.ps1 may have installed tools: pick up the new PATH in this window
+    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+}
 
 Set-Location (Join-Path $Root "backend")
 
@@ -52,10 +78,28 @@ if (-not (Test-Path $venvPy)) {
     & $venvPy -m pip install -q --upgrade pip
     & $venvPy -m pip install -q -e ".[dev]"
     if ($LASTEXITCODE -ne 0) { Write-Host "Installing the backend failed (see the error above). Delete backend\.venv and try again." -ForegroundColor Red; Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue; exit 1 }
+    $freshVenv = $true
+}
+
+# Reinstall / rebuild whenever the code changed since the last build (git pull alone would leave them stale).
+function Code-Stamp($rel) { (git -C $Root log -1 --format=%H -- $rel 2>$null) }
+$backendStamp = Join-Path $PWD ".venv\.spacestudio-installed"
+$want = Code-Stamp "backend/pyproject.toml"
+if ($want) {
+    $installed = $freshVenv
+    if (-not $installed -and ((Get-Content $backendStamp -ErrorAction SilentlyContinue) -ne $want)) {
+        Write-Host "==> Updating backend packages" -ForegroundColor Cyan
+        & $venvPy -m pip install -q -e ".[dev]"
+        $installed = ($LASTEXITCODE -eq 0)
+        if (-not $installed) { Write-Host "Updating backend packages failed (see the error above)." -ForegroundColor Red; exit 1 }
+    }
+    if ($installed) { Set-Content -Path $backendStamp -Value $want }
 }
 
 $dist = Join-Path $Root "frontend\dist\index.html"
-if (-not (Test-Path $dist)) {
+$distStamp = Join-Path $Root "frontend\dist\.spacestudio-built"
+$wantUi = Code-Stamp "frontend"
+if ((-not (Test-Path $dist)) -or ($wantUi -and ((Get-Content $distStamp -ErrorAction SilentlyContinue) -ne $wantUi))) {
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "npm not found. Install Node.js: winget install OpenJS.NodeJS.LTS" -ForegroundColor Red; exit 1 }
     Write-Host "==> Building the dashboard" -ForegroundColor Cyan
     Push-Location (Join-Path $Root "frontend")
@@ -63,14 +107,10 @@ if (-not (Test-Path $dist)) {
     if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Host "npm install failed (see the error above)." -ForegroundColor Red; exit 1 }
     npm run build
     if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Host "Building the dashboard failed (see the error above)." -ForegroundColor Red; exit 1 }
+    if ($wantUi) { Set-Content -Path $distStamp -Value $wantUi }
     Pop-Location
 }
 
-foreach ($tool in "ffmpeg", "claude", "git") {
-    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-        Write-Host "Warning: '$tool' is not on PATH. Repository Health in the app shows how to install it." -ForegroundColor Yellow
-    }
-}
 
 if ($SetupOnly) { Write-Host "Setup complete." -ForegroundColor Green; exit 0 }
 

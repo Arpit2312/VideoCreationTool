@@ -73,7 +73,23 @@ cd E:\SpaceStudio\VideoCreationTool; powershell -ExecutionPolicy Bypass -File ru
 
 This gives `E:\SpaceStudio\VideoCreationTool` (the app), `engines\` (the three repos), `data\` (projects, renders, database) and `cache\` (pip, npm, Hugging Face models, Playwright browsers, temp files).
 
-The browser opens at http://127.0.0.1:8000. On Windows, Claude Code and the engines' shell scripts run in Git Bash. SpaceStudio finds it automatically, or you can set `CLAUDE_CODE_GIT_BASH_PATH`.
+Every start, `run.ps1` does the following:
+
+1. Updates SpaceStudio with `git pull`, unless you have local changes.
+2. Checks every dependency: FFmpeg, Node, Claude Code, and the packages for cinematic-skill, lemo-opuscar (including its offline voice) and OpenMontage.
+3. Lists anything missing and asks once: **Install everything now? [Y/n]**.
+4. Rebuilds the dashboard or backend if their code changed.
+5. Opens http://127.0.0.1:8000.
+
+Run the installer on its own with `powershell -ExecutionPolicy Bypass -File setup.ps1`. Add `-CheckOnly` to only report what's missing.
+
+Launcher switches:
+
+- `-Yes`: install without asking
+- `-NoUpdate`: skip the `git pull`
+- `-SkipSetup`: skip the dependency check
+
+On Windows, Claude Code and the engines' shell scripts run in Git Bash. SpaceStudio finds it automatically, or you can set `CLAUDE_CODE_GIT_BASH_PATH`.
 
 ## Run on Linux / macOS / WSL
 
