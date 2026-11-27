@@ -23,6 +23,7 @@ class VideoConfig(BaseModel):
     platforms: list[str] = Field(default_factory=lambda: ["youtube"])
     voiceover: Literal["generated", "user", "none"] = "generated"
     voice_engine: Optional[str] = None          # engine id providing TTS; None = auto
+    narration_voice: Optional[str] = None       # e.g. hi-IN-SwaraNeural (edge-tts) or hf_alpha (Kokoro); None = default
     user_voice_file: Optional[str] = None       # workspace-relative, under assets/user/
     captions: bool = True
     burn_captions: bool = False

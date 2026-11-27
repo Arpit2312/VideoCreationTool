@@ -19,6 +19,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Optional
 
+from ..languages import default_voice, info as lang_info, is_indic, voice_tool
 from ..platform_compat import find_bash
 from ..workflow.stages import StageSpec
 from .base import DetectedStage, EngineHealth, HealthItem
@@ -216,23 +217,36 @@ class LemoAdapter(ManifestAdapter):
         slots = self.setting("max_render_jobs", 1) or 1
         lang = cfg.get("narration_language") or "en"
         if stage.key == "narration":
-            tts = (f"`cd {L} && {PY} core/tts/tts.py {P}/lines.json {P}/voice`" if not lang.startswith("zh") else
-                   f"`cd {L} && {PY} core/tts/tts_zh.py {P}/lines.json {P}/voice` (edge-tts: free online Microsoft"
-                   f" service; offline alternative: tts.py with \"lang\": \"cmn\" and a zf_*/zm_* voice)")
-            task = f"""Record the narration with lemo's offline Kokoro voice (TECHNIQUE.md §4, core/README.md "Audio").
+            voice = cfg.get("narration_voice") or eo.get("voice") or default_voice(lang)
+            asr_lang = lang_info(lang)["asr"]
+            if is_indic(lang) and voice_tool(voice) == "edge":
+                tts = (f"`cd {L} && {PY} core/tts/tts_zh.py {P}/lines.json {P}/voice --voice {voice}` (Microsoft edge-tts"
+                       f" neural voice {voice}: free, online, no key; if it cannot reach the service, fall back to the"
+                       " offline Kokoro Hindi voice: tts.py with \"lang\": \"hi\" and \"voice\": \"hf_alpha\" per line)")
+                line_opts = ""
+            elif is_indic(lang):
+                tts = f"`cd {L} && {PY} core/tts/tts.py {P}/lines.json {P}/voice` (offline Kokoro, Hindi voice {voice})"
+                line_opts = f' Add "lang": "hi", "voice": "{voice}" to every line.'
+            elif lang.startswith("zh"):
+                tts = (f"`cd {L} && {PY} core/tts/tts_zh.py {P}/lines.json {P}/voice` (edge-tts: free online Microsoft"
+                       f" service; offline alternative: tts.py with \"lang\": \"cmn\" and a zf_*/zm_* voice)")
+                line_opts = ""
+            else:
+                tts = f"`cd {L} && {PY} core/tts/tts.py {P}/lines.json {P}/voice`"
+                line_opts = f' Voice: "{voice}" on every line.' if voice else ""
+            task = f"""Record the narration with lemo-opuscar's voice tools (TECHNIQUE.md §4, core/README.md "Audio").
 1. The voice tier must be installed: `sh {self.setup_sh}` prints `packages: core … · voice ✓|✗`. If voice is ✗,
    append needs_input asking the user to run the SpaceStudio setup step "deps-voice" for lemo-opuscar, and end your turn.
-2. mkdir -p {P}. Write {P}/lines.json = [{{"id": "<SpaceStudio line id>", "text": "<spoken text, or text>"}}, ...] for
-   every line of {ws}/scripts/script.json, in order (optional per line: voice, speed, lang; defaults af_bella, 0.92, en-us).
-   Voice option: {eo.get('voice') or 'default'}.
+2. mkdir -p {P}. Write {P}/lines.json = [{{"id": "<SpaceStudio line id>", "text": "<the line's `spoken` text, or its
+   `text`>"}}, ...] for every line of {ws}/scripts/script.json, in order, UTF-8.{line_opts}
 3. {tts} writes <id>.wav (24 kHz, trimmed) and dur.json. Exit 1 = bad input / missing model / path too long.
-4. Speech check: `cd {L} && {PY} core/tts/asr_check.py {P}/lines.json {P}/voice --lang {lang.split('-')[0]}`; re-record
+4. Speech check: `cd {L} && {PY} core/tts/asr_check.py {P}/lines.json {P}/voice --lang {asr_lang}`; re-record
    any line that fails (an `asr` field can set the expected text for names).
 5. Join: copy each clip to {ws}/narration/lines/<id>.wav, then concatenate them with ffmpeg into
    {ws}/narration/narration.wav (48 kHz) with short silences between lines (about 0.35 s; longer, about 0.8 s, where the
    script's `section` changes) and about 0.3 s lead-in. Measure every clip with ffprobe and write
    {ws}/narration/timing.json with each line's real start/end, duration = the WAV's ffprobe duration,
-   engine "{self.id}", voice = the Kokoro voice used.
+   engine "{self.id}", voice = the voice used ({voice or 'default'}).
 {self.config_summary(cfg)}"""
         elif stage.key.startswith("segment:"):
             seg = segment_id(stage)

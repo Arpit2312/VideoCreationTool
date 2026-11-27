@@ -363,3 +363,41 @@ def test_presets(registry):
     assert set(gen["engines"]) == {"cinematic-skill", "lemo-opuscar", "openmontage"}
     assert len([s for s in p["visual_styles"] if s["engine"] == "lemo-opuscar"]) == 99
     assert set(p["engine_options"]) == {"cinematic-skill", "lemo-opuscar", "openmontage"}
+
+
+# ---- Hindi / Hinglish -----------------------------------------------------------------------------------------
+
+@need_clones
+def test_hindi_narration_uses_hindi_neural_voice(registry, ws):
+    a = registry.get("lemo-opuscar")
+    st = StageSpec("narration", "Narration", "", "narration", lane="engine:lemo-opuscar")
+    p = a.stage_prompt(st, ws, {"language": "hi", "narration_language": "hi", "zero_cost": True})
+    assert "core/tts/tts_zh.py" in p and "--voice hi-IN-SwaraNeural" in p
+    assert "--lang hi" in p and "Devanagari" in p
+
+
+@need_clones
+def test_hinglish_offline_voice_uses_kokoro_hindi(registry, ws):
+    a = registry.get("lemo-opuscar")
+    st = StageSpec("narration", "Narration", "", "narration", lane="engine:lemo-opuscar")
+    p = a.stage_prompt(st, ws, {"language": "hinglish", "narration_language": "hinglish", "narration_voice": "hm_omega"})
+    assert "core/tts/tts.py" in p and '"lang": "hi", "voice": "hm_omega"' in p
+    assert "Roman-script Hinglish" in p
+
+
+@need_clones
+def test_hindi_segments_get_devanagari_font_rules(registry, ws):
+    for eid in ("cinematic-skill", "lemo-opuscar", "openmontage"):
+        seg = _stages()[2]
+        p = registry.get(eid).stage_prompt(seg, ws, {"language": "hi", "narration_language": "hi"})
+        assert "Noto Sans Devanagari" in p, eid
+
+
+def test_language_helpers():
+    from spacestudio import languages as L
+
+    assert L.caption_font("hi", windows=True) == "Nirmala UI"
+    assert L.caption_font("hinglish", windows=True) is None      # Hinglish captions are Roman script
+    assert L.voice_tool("hi-IN-MadhurNeural") == "edge" and L.voice_tool("hf_alpha") == "kokoro"
+    assert L.writing_rules("en") == ""
+    assert {l["id"] for l in L.presets()} >= {"en", "hi", "hinglish"}

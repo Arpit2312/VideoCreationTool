@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CircleDollarSign, Info, Search, ShieldCheck } from "lucide-react";
-import type { EngineInfo, Presets, VideoConfig } from "../types";
+import type { EngineInfo, LanguagePreset, Presets, VideoConfig } from "../types";
 import { optionOf, parseResolution } from "../lib/format";
 import { FALLBACK_ASPECTS, FALLBACK_DURATIONS, isEngineUsable, likelyRoles, ROLE_CAPS, singularKey } from "../lib/config";
 import { Badge, cx, Field, ListInput, Select, Toggle } from "./ui";
@@ -25,6 +25,8 @@ export function CreativeSettings({ config, set, presets, engines }: { config: Vi
   const aspects = presets?.aspect_ratios?.length ? presets.aspect_ratios : FALLBACK_ASPECTS;
   const durations = presets?.durations?.length ? presets.durations : FALLBACK_DURATIONS;
   const platforms = presets?.platforms?.length ? presets.platforms : FALLBACK_PLATFORMS;
+  const languages = presets?.languages?.length ? presets.languages : FALLBACK_LANGUAGES;
+  const voices = languages.find((l) => l.id === config.narration_language)?.voices ?? [];
   const voiceEngines = engines.filter((e) => e.capabilities?.narration?.supported && isEngineUsable(e, { ...config, engines: [] }));
   const paidEngines = engines.filter((e) => (e.cost?.paid_env || []).length > 0);
 
@@ -73,12 +75,25 @@ export function CreativeSettings({ config, set, presets, engines }: { config: Vi
             />
           </div>
         </Field>
-        <Field label="Language">
-          <input className="input" value={config.language} onChange={(e) => set({ language: e.target.value })} placeholder="en" />
+        <Field label="Language" hint="Script, on-screen text and captions">
+          <LanguagePicker
+            value={config.language}
+            languages={languages}
+            onChange={(v) => set({ language: v, narration_language: v, subtitle_languages: [v], narration_voice: null })}
+          />
         </Field>
         <Field label="Narration language">
-          <input className="input" value={config.narration_language} onChange={(e) => set({ narration_language: e.target.value })} />
+          <LanguagePicker value={config.narration_language} languages={languages} onChange={(v) => set({ narration_language: v, narration_voice: null })} />
         </Field>
+        {voices.length > 0 && (
+          <Field label="Narrator voice" hint="Online voices are free Microsoft neural voices; offline ones work without internet">
+            <Select
+              value={config.narration_voice ?? ""}
+              onChange={(v) => set({ narration_voice: v || null })}
+              options={[{ id: "", name: `Default (${voices[0].name})` }, ...voices.map((x) => ({ id: x.id, name: x.name }))]}
+            />
+          </Field>
+        )}
         <Field label="Target audience">
           <input className="input" value={config.target_audience} onChange={(e) => set({ target_audience: e.target.value })} />
         </Field>
@@ -491,6 +506,30 @@ function SearchPicker({ label, items, value, onChange, hidden }: { label: string
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+const FALLBACK_LANGUAGES: LanguagePreset[] = [
+  { id: "en", name: "English", voices: [] },
+  { id: "hi", name: "Hindi (हिन्दी)", voices: [] },
+  { id: "hinglish", name: "Hinglish (Hindi + English)", voices: [] },
+];
+
+/** Known languages as a dropdown, plus "Other" for any language code Claude should write in. */
+function LanguagePicker({ value, languages, onChange }: { value: string; languages: LanguagePreset[]; onChange: (v: string) => void }) {
+  const known = languages.some((l) => l.id === value);
+  return (
+    <div className="flex gap-2">
+      <Select
+        value={known ? value : "__other"}
+        onChange={(v) => onChange(v === "__other" ? "" : v)}
+        options={[...languages.map((l) => ({ id: l.id, name: l.name })), { id: "__other", name: "Other…" }]}
+      />
+      {!known && (
+        <input className="input w-28" aria-label="Language code" placeholder="e.g. ta, bn, es" value={value} onChange={(e) => onChange(e.target.value.trim())} />
+      )}
     </div>
   );
 }

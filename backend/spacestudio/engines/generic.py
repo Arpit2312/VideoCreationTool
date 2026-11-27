@@ -25,6 +25,7 @@ from typing import Any, Iterable, Optional
 from pydantic import ValidationError
 
 from ..interchange import schema as ix
+from ..languages import font_rules, writing_rules
 from ..platform_compat import IS_WINDOWS, find_bash
 from ..workflow.stages import StageSpec
 from .base import DetectedStage, EngineAdapter, EngineHealth, HealthItem, LaunchSpec
@@ -545,7 +546,9 @@ class ManifestAdapter(EngineAdapter):
                 f"tone {c['tone']}, language {c['language']} (narration {c['narration_language']}), pacing {c['pacing']}, "
                 f"voiceover {c['voiceover']}, captions {c['captions']}, music {c['music']}, sfx {c['sfx']}, "
                 f"audience {c['target_audience']}. Engine options: {json.dumps(eo)}."
-                + (f"\nCreative brief: {c['brief']}" if c.get("brief") else ""))
+                + (f"\nCreative brief: {c['brief']}" if c.get("brief") else "")
+                + "".join(f"\n{r}" for r in (writing_rules(c.get("language"), c.get("narration_language")),
+                                              font_rules(c.get("language"))) if r))
 
     # ---- detection -----------------------------------------------------------------------------
     def zero_cost_for(self, workspace: Path, stage: StageSpec) -> bool:

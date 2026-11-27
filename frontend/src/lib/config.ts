@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: VideoConfig = {
   platforms: ["youtube"],
   voiceover: "generated",
   voice_engine: null,
+  narration_voice: null,
   user_voice_file: null,
   captions: true,
   burn_captions: false,

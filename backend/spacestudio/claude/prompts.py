@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from ..languages import font_rules, writing_rules
 from ..interchange import schema as ix
 from .agents import STAGE_DELEGATION
 
@@ -218,6 +219,11 @@ def creative_prompt(
     if cfg.get("brief"):
         parts.append(f"Creative brief from the user:\n{cfg['brief']}")
     parts.append("Video config (JSON):\n" + json.dumps(cfg, indent=1, default=str))
+    rules = writing_rules(cfg.get("language"), cfg.get("narration_language"))
+    if rules and key in ("concept", "script", "storyboard", "asset_plan"):
+        parts.append(rules)
+    if key == "storyboard" and font_rules(cfg.get("language")):
+        parts.append(font_rules(cfg.get("language")) + " Mention the font in each scene's `method`.")
     parts.append("## Task\n" + _TASKS[key].replace("{{", "{").replace("}}", "}"))
     subs = STAGE_DELEGATION.get(key)
     if subs:

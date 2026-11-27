@@ -296,6 +296,7 @@ export interface VideoConfig {
   platforms: string[];
   voiceover: "generated" | "user" | "none";
   voice_engine: string | null;
+  narration_voice?: string | null;
   user_voice_file: string | null;
   captions: boolean;
   burn_captions: boolean;
@@ -435,7 +436,14 @@ export interface VideoTypePreset {
   engines?: string[];
   defaults?: Partial<VideoConfig>;
 }
+export interface LanguagePreset {
+  id: string;
+  name: string;
+  voices: { id: string; name: string; tool?: string }[];
+}
+
 export interface Presets {
+  languages?: LanguagePreset[];
   video_types?: VideoTypePreset[];
   visual_styles?: unknown[];
   tones?: unknown[];

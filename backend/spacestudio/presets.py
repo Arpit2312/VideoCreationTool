@@ -171,7 +171,10 @@ def get_presets(registry) -> dict:
         {"id": "user", "name": "My own recording (upload to assets/user/)", "engines": sorted(ids)},
         {"id": "none", "name": "No narration", "engines": sorted(ids)},
     ]
+    from .languages import presets as language_presets
+
     return {
+        "languages": language_presets(),
         "video_types": video_types,
         "visual_styles": _visual_styles(engine_opts),
         "tones": TONES,

@@ -33,6 +33,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from ..languages import caption_font
 from ..interchange.schema import (AssetManifest, NarrationTiming, SegmentRender, Storyboard,
                                   VideoConfig)
 from . import ffmpeg as ff
@@ -687,7 +688,11 @@ def captions(ws: Path, config, settings) -> list[str]:
                 shutil.copyfile(primary, tmp / "captions.srt")
                 out = ws / "renders" / "final_captioned.mp4"
                 fps = _fps(cfg)
-                step.run(["-i", str(final), "-map", "0:v:0", "-map", "0:a?", "-vf", "subtitles=captions.srt",
+                vf = "subtitles=captions.srt"
+                font = caption_font(cfg.narration_language or cfg.language, os.name == "nt")
+                if font:  # Devanagari captions need a font that has the glyphs (libass would draw boxes)
+                    vf += f":force_style='FontName={font}'"
+                step.run(["-i", str(final), "-map", "0:v:0", "-map", "0:a?", "-vf", vf,
                           *_venc(step, 18, "medium", fps), "-c:a", "copy", "-movflags", "+faststart", str(out)],
                          cwd=tmp, what="ffmpeg burn captions")
                 shutil.rmtree(tmp, ignore_errors=True)
