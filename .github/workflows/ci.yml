@@ -58,6 +58,14 @@ jobs:
       - name: Test backend
         working-directory: backend
         run: .venv\Scripts\python -m pytest -q
+      - name: Launcher (run.ps1) sets up from a clean checkout
+        shell: powershell
+        run: |
+          Remove-Item -Recurse -Force backend\.venv
+          powershell -ExecutionPolicy Bypass -File run.ps1 -SetupOnly
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Test-Path backend\.venv\Scripts\spacestudio.exe)) { exit 1 }
+          if (-not (Test-Path frontend\dist\index.html)) { exit 1 }
 
   frontend:
     runs-on: ubuntu-24.04
