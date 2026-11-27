@@ -147,7 +147,9 @@ class ClaudeRunner:
             cmd += ["--model", req.model]
         if req.effort:
             cmd += ["--effort", req.effort]
-        if req.max_budget_usd is not None:
+        # Claude Code requires a cap > 0; 0 / negative / empty all mean "no cap" (0 is what people type when they
+        # think of zero-cost mode, which is about paid media providers, not Claude usage).
+        if req.max_budget_usd is not None and float(req.max_budget_usd) >= 0.01:
             cmd += ["--max-budget-usd", f"{float(req.max_budget_usd):.2f}"]
         return cmd
 

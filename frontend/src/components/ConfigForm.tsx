@@ -227,7 +227,7 @@ export function CreativeSettings({ config, set, presets, engines }: { config: Vi
         <Field label="Media budget (USD)" hint={config.zero_cost ? "Ignored in zero-cost mode." : "Maximum spend on approved paid providers."}>
           <input type="number" min={0} step="0.5" disabled={config.zero_cost} className="input" value={config.budget_usd} onChange={(e) => set({ budget_usd: Number(e.target.value) || 0 })} />
         </Field>
-        <Field label="Claude budget cap (USD, optional)" hint="Passed as --max-budget-usd per stage.">
+        <Field label="Claude budget cap (USD, optional)" hint="Maximum Claude spend per stage. Leave empty (or 0) for no cap. Zero-cost mode is about paid media providers, not Claude.">
           <input
             type="number"
             min={0}

@@ -120,3 +120,13 @@ async def test_stderr_is_redacted(tmp_path):
     log = res.log_path.read_text()
     assert "supersecret123" not in log and "api_key=***" in log
     assert res.is_error and res.cost_usd == 0.01
+
+
+def test_zero_claude_budget_means_no_cap(tmp_path):
+    """Claude Code rejects --max-budget-usd 0.00 ('must be a number greater than 0'); 0 means no cap."""
+    r = ClaudeRunner(settings())
+    ws = make_ws(tmp_path)
+    for v in (0, 0.0, -1):
+        assert "--max-budget-usd" not in r.build_command(req(ws, max_budget_usd=v))
+    cmd = r.build_command(req(ws, max_budget_usd=1.5))
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "1.50"
