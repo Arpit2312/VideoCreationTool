@@ -1112,6 +1112,19 @@ class Orchestrator:
                            error=redact(f"Claude Code exited with code {result.exit_code} before starting a session"
                                         + hint + (": " + " | ".join(tail) if tail else
                                                   "; no output (see logs/" + Path(result.log_path).name + ")")))
+        if result.is_error and (last is None or last.get("type") != "stage_completed"):
+            # The session ended in an API/account error before finishing (billing, auth, overload): show it as-is.
+            text = (result.result_text or "").strip()[:300] or "Claude reported an error"
+            low = text.lower()
+            hint = ""
+            if "credit balance" in low or "billing" in low:
+                hint = (" — Claude Code is using an API key with no credit. Remove ANTHROPIC_API_KEY or run `claude`, "
+                        "/login with your Claude subscription, then Retry.")
+            elif "rate limit" in low or "usage limit" in low or "overloaded" in low:
+                hint = " — Claude usage limit or overload; wait and Retry."
+            elif "auth" in low or "login" in low or "api key" in low:
+                hint = " — sign in: run `claude` once in a terminal, then Retry."
+            return Outcome("failed", warnings=warnings, error=redact(f"Claude: {text}{hint}"))
         if result.is_error:
             warnings.append(f"Claude reported an error result: {result.result_text[:200]}")
 
