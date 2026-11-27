@@ -9,6 +9,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from ..platform_compat import IS_WINDOWS
 from ..audit import audit
 from ..config import get_settings, save_settings
 from ..db import get_session, session_scope
@@ -156,7 +157,9 @@ def setup_engine(engine_id: str, body: EngineSetupBody) -> Run:
         raise HTTPException(404, f"engine {engine_id} has no setup step {body.step!r}")
     settings = get_settings()
     repo = Path(a.repo_path) if a.repo_path else None
-    command = _substitute(str(step.get("command", "")), repo, settings.engines_dir)
+    # a manifest step may give a Windows variant (e.g. no `make` there); both run in bash (Git Bash on Windows)
+    raw = step.get("command_windows") if IS_WINDOWS and step.get("command_windows") else step.get("command", "")
+    command = _substitute(str(raw), repo, settings.engines_dir)
     if not command.strip():
         raise HTTPException(400, "this setup step has no command")
     cwd_s = _substitute(str(step.get("cwd") or "."), repo, settings.engines_dir)

@@ -166,7 +166,9 @@ class OpenMontageAdapter(ManifestAdapter):
                                 "" if nm.is_dir() else "run the setup step 'make setup' (cd remotion-composer && npm install)"))
         import shutil
 
-        piper = shutil.which("piper") or (str(repo / ".venv" / "bin" / "piper") if (repo / ".venv" / "bin" / "piper").exists() else None)
+        piper = shutil.which("piper") or next((str(c) for c in (repo / ".venv" / "bin" / "piper",
+                                                                  repo / ".venv" / "Scripts" / "piper.exe")
+                                               if c.exists()), None)
         items.append(HealthItem("piper", "Piper TTS (free narration)", "ok" if piper else "warning",
                                 piper or "piper not found: OpenMontage cannot narrate for free",
                                 "" if piper else "run 'make setup' (pip install piper-tts) and the 'piper-voice' setup step"))

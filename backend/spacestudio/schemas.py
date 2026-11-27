@@ -119,6 +119,7 @@ class ClaudeInfo(BaseModel):
     version: Optional[str]
     simulated: bool
     ok: bool
+    warning: Optional[str] = None
 
 
 class HealthReport(BaseModel):
@@ -126,6 +127,8 @@ class HealthReport(BaseModel):
     engines: list[dict[str, Any]]
     claude: ClaudeInfo
     zero_cost_ready: bool
+    engines_ready: list[str] = Field(default_factory=list)
+    engines_total: int = 0
 
 
 class ImportPreview(BaseModel):

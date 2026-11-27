@@ -25,6 +25,7 @@ from typing import Any, Iterable, Optional
 from pydantic import ValidationError
 
 from ..interchange import schema as ix
+from ..platform_compat import IS_WINDOWS, find_bash
 from ..workflow.stages import StageSpec
 from .base import DetectedStage, EngineAdapter, EngineHealth, HealthItem, LaunchSpec
 
@@ -348,6 +349,8 @@ class ManifestAdapter(EngineAdapter):
         req = self.manifest.get("requires") or {}
         for c in req.get("commands", []) or []:
             path = shutil.which(self._command_name(c))
+            if not path and c in ("sh", "bash") and IS_WINDOWS:
+                path = find_bash()  # engine shell commands run in Git Bash on Windows; its sh need not be on PATH
             items.append(HealthItem(f"cmd:{c}", f"{c} on PATH", "ok" if path else "error",
                                     path or "not found", "" if path else f"install {c} and make sure it is on PATH"))
         return items, commit

@@ -134,9 +134,23 @@ concurrency:
   env: {}
 
 setup:
-  - {id: make-setup, title: "make setup (venv, requirements, remotion-composer npm install, piper-tts, HyperFrames cache, .env from .env.example)", command: "make setup", cwd: "{repo}"}
-  - {id: piper-voice, title: "Download the default Piper voice (from piper_tts install_instructions)", command: "python -m piper.download_voices --download-dir ~/.piper/models en_US-lessac-medium", cwd: "{repo}"}
-  - {id: preflight, title: "Show the provider menu (make preflight)", command: "make preflight", cwd: "{repo}"}
+  # `make` is not available on Windows: command_windows runs the README's PowerShell steps, in Git Bash.
+  # It does NOT copy .env.example to .env, so no placeholder provider keys get auto-loaded (zero-cost stays clean).
+  - id: make-setup
+    title: "make setup (venv, requirements, remotion-composer npm install, piper-tts, HyperFrames cache, .env from .env.example)"
+    command: "make setup"
+    command_windows: "python -m venv .venv && .venv/Scripts/python -m pip install 'pip>=26.2.2' && .venv/Scripts/python -m pip install -r requirements.txt && (cd remotion-composer && npm install) && .venv/Scripts/python -m pip install piper-tts"
+    cwd: "{repo}"
+  - id: piper-voice
+    title: "Download the default Piper voice (from piper_tts install_instructions)"
+    command: ".venv/bin/python -m piper.download_voices --download-dir ~/.piper/models en_US-lessac-medium"
+    command_windows: ".venv/Scripts/python -m piper.download_voices --download-dir ~/.piper/models en_US-lessac-medium"
+    cwd: "{repo}"
+  - id: preflight
+    title: "Show the provider menu (make preflight)"
+    command: "make preflight"
+    command_windows: ".venv/Scripts/python -c \"from tools.tool_registry import registry; import json; registry.discover(); print(json.dumps(registry.provider_menu(), indent=2))\""
+    cwd: "{repo}"
 
 allowed_tools:
   - Read
