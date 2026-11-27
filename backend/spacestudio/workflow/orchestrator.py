@@ -1098,11 +1098,20 @@ class Orchestrator:
             summary = redact(str(last.get("summary") or "")) or None
         else:
             warnings.append("Claude did not append a stage_completed event; status taken from the files")
-        if result.is_error and not result.got_result:
-            tail = result.stderr_tail.strip().splitlines()[-1:] if result.stderr_tail else []
+        if not result.got_result:
+            # The CLI never produced a result: it did not start a session at all (unknown option on an older
+            # Claude Code, not signed in, crashed). Show its own words instead of "files not done".
+            tail = [l for l in (result.stderr_tail or "").strip().splitlines() if l.strip()][-4:]
+            hint = ""
+            low = " ".join(tail).lower()
+            if "unknown option" in low or "error: option" in low:
+                hint = " (this Claude Code version lacks an option SpaceStudio uses: update it with `claude update`)"
+            elif "login" in low or "auth" in low or "api key" in low:
+                hint = " (sign in: run `claude` once in a terminal)"
             return Outcome("failed", warnings=warnings,
-                           error=f"Claude Code exited with code {result.exit_code}"
-                                 + (f": {tail[0]}" if tail else "") )
+                           error=redact(f"Claude Code exited with code {result.exit_code} before starting a session"
+                                        + hint + (": " + " | ".join(tail) if tail else
+                                                  "; no output (see logs/" + Path(result.log_path).name + ")")))
         if result.is_error:
             warnings.append(f"Claude reported an error result: {result.result_text[:200]}")
 
