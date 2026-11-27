@@ -96,6 +96,7 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File setup.ps1 -SkipSystem -CheckOnly
           if ($LASTEXITCODE -ne 1) { Write-Host "expected missing packages on a fresh machine"; exit 1 }
+          exit 0   # exit code 1 above is the expected answer; don't let it fail the step
       - name: setup.ps1 installs everything
         shell: powershell
         run: |
