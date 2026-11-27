@@ -5,6 +5,7 @@ can be reported with an actionable tail of ffmpeg's own message.
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 import subprocess
@@ -71,16 +72,29 @@ def _capabilities(ffmpeg: str) -> tuple[frozenset, frozenset]:
     return frozenset(filters), frozenset(encoders)
 
 
+@functools.lru_cache(maxsize=256)
+def _asks(ffmpeg: str, kind: str, name: str) -> bool:
+    """Ask FFmpeg about one filter/encoder (`-h filter=NAME`). Unlike parsing the `-filters` table, whose
+    column layout differs between FFmpeg versions, this answer has the same shape in 6.x, 7.x and later."""
+    try:
+        out = run([ffmpeg, "-hide_banner", "-h", f"{kind}={name}"], timeout=30, what=f"ffmpeg -h {kind}").stdout
+    except (ToolFailed, ToolMissing):
+        return False
+    head = (out or "").lstrip().lower()
+    return head.startswith(f"{kind} {name.lower()}")
+
+
 def has_filter(ffmpeg: str, name: str) -> bool:
-    return name in _capabilities(ffmpeg)[0]
+    return name in _capabilities(ffmpeg)[0] or _asks(ffmpeg, "filter", name)
 
 
 def has_encoder(ffmpeg: str, name: str) -> bool:
-    return name in _capabilities(ffmpeg)[1]
+    return name in _capabilities(ffmpeg)[1] or _asks(ffmpeg, "encoder", name)
 
 
 def clear_cache() -> None:
     _capabilities.cache_clear()
+    _asks.cache_clear()
 
 
 def probe(ffprobe: str, path: Path, timeout: float = 60) -> dict:

@@ -261,3 +261,15 @@ def test_bad_ffmpeg_path_is_assembly_error(tmp_path):
 def test_slugify():
     assert pl.slugify("  ") == "video"
     assert pl.slugify("Ça va? L'été — 2024") == "ca-va-l-ete-2024"
+
+
+def test_filter_detection_survives_unparsable_filter_table(monkeypatch):
+    """Newer FFmpeg builds print the -filters table in another layout; detection must not depend on it."""
+    from spacestudio.assembly import ffmpeg as ffm
+
+    ffm.clear_cache()
+    monkeypatch.setattr(ffm, "_capabilities", lambda _bin: (frozenset(), frozenset()))
+    assert ffm.has_filter("ffmpeg", "blackdetect")
+    assert ffm.has_encoder("ffmpeg", "libx264")
+    assert not ffm.has_filter("ffmpeg", "nosuchfilter")
+    ffm._asks.cache_clear()

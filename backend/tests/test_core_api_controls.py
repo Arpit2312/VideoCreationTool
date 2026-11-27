@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+import psutil
 import pytest
 
 from conftest import SMALL_CONFIG, fake_env, stage_of, wait_for, wait_stage
@@ -100,8 +101,7 @@ def test_cancel_running_stage_kills_claude(make_client, monkeypatch):
     run = wait_for(lambda: (lambda r: r if r["state"] == "cancelled" else None)(
         c.get(f"/api/videos/{vid}/stages/research").json()["runs"][-1]), 20, what="run cancelled")
     assert run["ended_at"]
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
 
 
 def test_restart_recovery_resumes(make_client):

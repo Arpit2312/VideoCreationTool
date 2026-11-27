@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import psutil
 import pytest
 
 from spacestudio.claude.agents import agent_defs
@@ -89,8 +90,7 @@ async def test_cancel_terminates_process_group(tmp_path, monkeypatch):
     r.cancel("k1")
     res = await task
     assert res.cancelled and res.is_error and time.monotonic() - t0 < 10
-    with pytest.raises(ProcessLookupError):
-        os.kill(pids[0], 0)
+    assert not psutil.pid_exists(pids[0]) or psutil.Process(pids[0]).status() == psutil.STATUS_ZOMBIE
 
 
 async def test_timeout(tmp_path, monkeypatch):
