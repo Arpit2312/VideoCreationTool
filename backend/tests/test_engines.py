@@ -17,7 +17,7 @@ from spacestudio.workflow.stages import Capability, StageSpec
 ENGINES_DIR = Path("~/.spacestudio/engines").expanduser()
 need_clones = pytest.mark.skipif(not all((ENGINES_DIR / d).is_dir() for d in ("OpenMontage", "cinematic-skill", "lemo-opuscar")),
                                  reason="engine clones not present")
-MARKER = re.compile(r"^SPACESTUDIO_STAGE=(\S+) VIDEO=(\S+) WORKSPACE=(/\S+) LANE=(\S+)$")
+MARKER = re.compile(r"^SPACESTUDIO_STAGE=(\S+) VIDEO=(\S+) WORKSPACE=((?:/|[A-Za-z]:[\\/])\S+) LANE=(\S+)$")
 
 
 def make_settings(tmp_path, **kw):
@@ -89,7 +89,7 @@ def test_paid_env(registry):
         assert k not in paid
     assert {"PEXELS_API_KEY", "PIXABAY_API_KEY", "UNSPLASH_ACCESS_KEY"} <= registry.free_env_names()
     # every paid key except ATLASCLOUD_API_KEY (named in a comment) is a real line of .env.example
-    example = (ENGINES_DIR / "OpenMontage" / ".env.example").read_text()
+    example = (ENGINES_DIR / "OpenMontage" / ".env.example").read_text(encoding="utf-8")
     for k in paid - {"ATLASCLOUD_API_KEY"}:
         assert re.search(rf"^#? ?{k}=", example, re.M), k
 

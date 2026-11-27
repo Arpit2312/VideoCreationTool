@@ -50,7 +50,7 @@ def run_cmd(cmd: list[str], cwd: Optional[Path] = None, timeout: float = 60, env
             ) -> tuple[Optional[int], str]:
     """Run a command; returns (exit code or None when it could not run, combined output)."""
     try:
-        r = subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True,
+        r = subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=timeout, env=env)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except FileNotFoundError:
@@ -116,18 +116,18 @@ def git_commit(repo: Path) -> Optional[str]:
     gd = Path(repo) / ".git"
     try:
         if gd.is_file():  # worktree / submodule: "gitdir: <path>"
-            target = gd.read_text().split(":", 1)[1].strip()
+            target = gd.read_text(encoding="utf-8", errors="replace").split(":", 1)[1].strip()
             gd = (Path(repo) / target).resolve()
-        head = (gd / "HEAD").read_text().strip()
+        head = (gd / "HEAD").read_text(encoding="utf-8", errors="replace").strip()
         if not head.startswith("ref:"):
             return head or None
         ref = head.split(":", 1)[1].strip()
         f = gd / ref
         if f.exists():
-            return f.read_text().strip() or None
+            return f.read_text(encoding="utf-8", errors="replace").strip() or None
         packed = gd / "packed-refs"
         if packed.exists():
-            for line in packed.read_text().splitlines():
+            for line in packed.read_text(encoding="utf-8", errors="replace").splitlines():
                 if line.endswith(" " + ref):
                     return line.split()[0]
     except (OSError, IndexError):
@@ -139,7 +139,7 @@ def git_config_value(repo: Path, section: str, key: str) -> Optional[str]:
     """Read a value from <repo>/.git/config without running git (e.g. lemo.managed)."""
     f = Path(repo) / ".git" / "config"
     try:
-        text = f.read_text()
+        text = f.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
     cur = None

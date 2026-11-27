@@ -18,6 +18,9 @@ Set-Default "HF_HOME"                  (Join-Path $Base "cache\huggingface")
 Set-Default "PLAYWRIGHT_BROWSERS_PATH" (Join-Path $Base "cache\playwright")
 Set-Default "TEMP"                     (Join-Path $Base "cache\tmp")
 $env:TMP = $env:TEMP
+# UTF-8 for every file and process the backend touches (Windows defaults to the local code page)
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 Write-Host "Data:    $env:SPACESTUDIO_DATA_DIR"
 Write-Host "Engines: $env:SPACESTUDIO_ENGINES_DIR"
 Write-Host "Caches:  $(Join-Path $Base 'cache')"

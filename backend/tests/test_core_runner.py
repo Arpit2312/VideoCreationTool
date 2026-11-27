@@ -111,10 +111,10 @@ async def test_missing_binary(tmp_path):
 
 
 async def test_stderr_is_redacted(tmp_path):
-    script = tmp_path / "noisy-claude"
-    script.write_text("#!/bin/sh\necho 'error: api_key=supersecret123 failed' >&2\n"
-                      "echo '{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error\",\"total_cost_usd\":0.01}'\n")
-    script.chmod(0o755)
+    # a .py fake runs through the current Python on every OS (a #!/bin/sh script cannot run on Windows)
+    script = tmp_path / "noisy_claude.py"
+    script.write_text("import sys\nsys.stdin.read()\nprint('error: api_key=supersecret123 failed', file=sys.stderr)\n"
+                      "print('{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error\",\"total_cost_usd\":0.01}')\n")
     ws = make_ws(tmp_path)
     res = await ClaudeRunner(settings(claude_bin=str(script))).run(req(ws))
     log = res.log_path.read_text()

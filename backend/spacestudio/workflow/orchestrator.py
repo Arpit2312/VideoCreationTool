@@ -85,7 +85,7 @@ def _expand_outputs(ws: Path, patterns: Iterable[str]) -> list[str]:
     for pat in patterns:
         if any(c in pat for c in "*?["):
             for p in sorted(globlib.glob(str(ws / pat), recursive=True)):
-                rel = os.path.relpath(p, ws)
+                rel = Path(os.path.relpath(p, ws)).as_posix()
                 if rel not in out and Path(p).is_file():
                     out.append(rel)
         elif (ws / pat).exists() and pat not in out:

@@ -39,7 +39,7 @@ def run(cmd: list[str], *, timeout: float = 600, cwd: Optional[Path] = None, wha
         check: bool = True) -> subprocess.CompletedProcess:
     try:
         proc = subprocess.run(
-            [str(c) for c in cmd], cwd=str(cwd) if cwd else None, capture_output=True, text=True,
+            [str(c) for c in cmd], cwd=str(cwd) if cwd else None, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError as exc:

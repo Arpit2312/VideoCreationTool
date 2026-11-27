@@ -56,7 +56,7 @@ def _kind(p: Path) -> str:
 
 def _entry(ws: Path, p: Path) -> dict:
     st = p.stat()
-    return {"path": os.path.relpath(p, ws), "name": p.name, "is_dir": p.is_dir(),
+    return {"path": Path(os.path.relpath(p, ws)).as_posix(), "name": p.name, "is_dir": p.is_dir(),
             "size": 0 if p.is_dir() else st.st_size,
             "modified": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(), "kind": _kind(p)}
 
@@ -286,7 +286,7 @@ async def put_file(video_id: str, path: str, request: Request) -> dict:
         v = video_or_404(s, video_id)
         ws = _ws(v)
         p = _guard(v, path)
-        rel = os.path.relpath(p, ws.resolve())
+        rel = p.relative_to(ws.resolve()).as_posix()
         if p.suffix.lower() not in EDITABLE_EXT or not (rel == "brief.json" or rel.startswith(EDITABLE_DIRS)):
             raise HTTPException(403, "only .json/.md/.txt/.srt files under scripts/, storyboard/, research/, "
                                      "subtitles/ or brief.json can be edited")

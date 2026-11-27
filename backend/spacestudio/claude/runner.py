@@ -307,7 +307,7 @@ class ClaudeRunner:
             except asyncio.TimeoutError:
                 pass
         if proc.returncode is None:
-            _signal_group(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+            _signal_group(proc.pid, KILL)
 
     def cancel(self, run_key: str) -> None:
         """SIGTERM the run's process group now, SIGKILL after the grace period. Thread-safe."""
@@ -321,7 +321,7 @@ class ClaudeRunner:
 
         def _kill() -> None:
             if proc.returncode is None:
-                _signal_group(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+                _signal_group(proc.pid, KILL)
 
         if loop is not None and not loop.is_closed():
             loop.call_soon_threadsafe(lambda: loop.call_later(grace, _kill))
@@ -330,9 +330,12 @@ class ClaudeRunner:
         return [k for k, p in self._procs.items() if p.returncode is None]
 
 
+KILL = getattr(signal, "SIGKILL", -9)  # Windows has no SIGKILL; this sentinel means "force"
+
+
 def _signal_group(pid: int, sig: int) -> None:
-    """Stop the run's whole process tree: SIGTERM -> graceful, SIGKILL -> forced (taskkill /T on Windows)."""
-    terminate_tree(pid, force=(sig == getattr(signal, "SIGKILL", None)))
+    """Stop the run's whole process tree: SIGTERM -> graceful, KILL -> forced (taskkill /T /F on Windows)."""
+    terminate_tree(pid, force=(sig == KILL))
 
 
 def _safe_emit(emit: Callable[[dict], None], ev: dict) -> None:

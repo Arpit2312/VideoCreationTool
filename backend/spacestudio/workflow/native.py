@@ -170,7 +170,7 @@ def _silence(ctx: NativeContext, out: Path, seconds: float) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     p = subprocess.run([ff, "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
                         "anullsrc=r=48000:cl=stereo", "-t", f"{seconds:.3f}", "-c:a", "pcm_s16le", str(out)],
-                       capture_output=True, text=True, timeout=300)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
     if p.returncode != 0:
         raise NativeError(f"ffmpeg could not write {out.name}: {p.stderr.strip()[-300:]}")
 
@@ -215,14 +215,14 @@ def narration_user(ctx: NativeContext) -> NativeResult:
     ff = _ffmpeg(ctx.settings)
     out = ctx.ws / "narration" / "narration.wav"
     p = subprocess.run([ff, "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), "-ar", "48000", "-ac", "2",
-                        "-c:a", "pcm_s16le", str(out)], capture_output=True, text=True, timeout=600)
+                        "-c:a", "pcm_s16le", str(out)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     if p.returncode != 0:
         raise NativeError(f"could not convert the user recording: {p.stderr.strip()[-300:]}")
     probe = shutil.which(getattr(ctx.settings, "ffprobe", "ffprobe") or "ffprobe")
     if not probe:
         raise NativeError("ffprobe not found")
     q = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out)],
-                       capture_output=True, text=True, timeout=60)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     try:
         dur = float(q.stdout.strip())
     except ValueError:

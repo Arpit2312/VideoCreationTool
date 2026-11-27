@@ -13,7 +13,7 @@ from ..engines.base import EngineHealth, HealthItem
 
 def _run(cmd: list[str], timeout: float = 15) -> tuple[int, str]:
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as e:
         return -1, str(e)

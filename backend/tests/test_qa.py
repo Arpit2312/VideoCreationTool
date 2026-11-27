@@ -67,7 +67,7 @@ def test_good_output_passes_and_writes_qa_json(tmp_path):
     r = by_id(res)
     for k in ["output_exists", "ffprobe", "dimensions", "aspect", "fps", "duration_target", "audio_stream",
               "captions", "factcheck", "stages", "black_frames", "credits", "asset_licences", "asset_paths"]:
-        assert r[k]["status"] == "passed", (k, r[k])
+        assert r[k]["status"] == "passed", (k, r[k]["status"], r[k]["detail"])
     assert r["loudness"]["status"] in ("passed", "warning")   # quiet tone, not -14 LUFS
     assert all(set(x) == {"id", "name", "status", "blocking", "detail"} for x in res)
     saved = json.loads((ws / ".spacestudio/qa.json").read_text())

@@ -37,8 +37,14 @@ def terminate_tree(pid: int, force: bool = False) -> None:
         return
     try:
         if IS_WINDOWS:
-            args = ["taskkill", "/PID", str(pid), "/T"] + (["/F"] if force else [])
-            subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
+            if not force:
+                try:  # the child was started with CREATE_NEW_PROCESS_GROUP, so this reaches its whole group
+                    os.kill(pid, getattr(signal, "CTRL_BREAK_EVENT"))
+                    return
+                except (OSError, AttributeError, ValueError):
+                    pass
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=30, check=False)
         else:
             os.killpg(os.getpgid(pid), signal.SIGKILL if force else signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError, subprocess.SubprocessError):

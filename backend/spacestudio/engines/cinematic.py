@@ -214,7 +214,7 @@ Hand over to SpaceStudio: copy the film to {ws}/renders/final.mp4, the SRT to {w
             import json as _json
             tj = Path(workspace) / f"work/{self.id}/{NATIVE_PROJECT}/audio/timing.json"
             try:
-                t = _json.loads(tj.read_text())
+                t = _json.loads(tj.read_text(encoding="utf-8", errors="replace"))
                 if not t.get("segments") or not t.get("total_duration"):
                     return DetectedStage(stage.key, "failed", det.outputs, "audio/timing.json has no segments")
             except (OSError, ValueError) as e:
