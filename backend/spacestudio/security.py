@@ -10,9 +10,14 @@ from . import workspace
 from .platform_compat import WINDOWS_ENV
 from .workspace import WorkspaceError
 
+# Where tools keep their caches and downloads; set by run.ps1 so a non-system drive holds them.
+CACHE_VARS = (
+    "PIP_CACHE_DIR", "UV_CACHE_DIR", "npm_config_cache", "NPM_CONFIG_CACHE", "HF_HOME", "HF_ENDPOINT",
+    "PLAYWRIGHT_BROWSERS_PATH", "XDG_CACHE_HOME", "TORCH_HOME", "LEMO_OPUSCAR_HOME",
+)
 BASE_ALLOWLIST = (
     "PATH", "HOME", "LANG", "LC_ALL", "TERM", "USER", "SHELL", "TMPDIR",
-) + WINDOWS_ENV
+) + WINDOWS_ENV + CACHE_VARS
 CLAUDE_AUTH_VARS = (
     "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "ANTHROPIC_BASE_URL",
 )

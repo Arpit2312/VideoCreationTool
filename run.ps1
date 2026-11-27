@@ -2,6 +2,26 @@
 #   powershell -ExecutionPolicy Bypass -File run.ps1
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Everything heavy lives next to the install folder (e.g. E:\SpaceStudio\...), not on C:.
+# Override any of these by setting the variable before running.
+$Base = Split-Path -Parent $Root
+function Set-Default($name, $value) {
+    if (-not [Environment]::GetEnvironmentVariable($name)) { [Environment]::SetEnvironmentVariable($name, $value, "Process") }
+    New-Item -ItemType Directory -Force -Path ([Environment]::GetEnvironmentVariable($name)) | Out-Null
+}
+Set-Default "SPACESTUDIO_DATA_DIR"     (Join-Path $Base "data")
+Set-Default "SPACESTUDIO_ENGINES_DIR"  (Join-Path $Base "engines")
+Set-Default "PIP_CACHE_DIR"            (Join-Path $Base "cache\pip")
+Set-Default "npm_config_cache"         (Join-Path $Base "cache\npm")
+Set-Default "HF_HOME"                  (Join-Path $Base "cache\huggingface")
+Set-Default "PLAYWRIGHT_BROWSERS_PATH" (Join-Path $Base "cache\playwright")
+Set-Default "TEMP"                     (Join-Path $Base "cache\tmp")
+$env:TMP = $env:TEMP
+Write-Host "Data:    $env:SPACESTUDIO_DATA_DIR"
+Write-Host "Engines: $env:SPACESTUDIO_ENGINES_DIR"
+Write-Host "Caches:  $(Join-Path $Base 'cache')"
+
 Set-Location (Join-Path $Root "backend")
 
 function Find-Python {

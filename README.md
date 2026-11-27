@@ -57,23 +57,21 @@ Update Claude Code. SpaceStudio was tested with 2.1.332:
 claude update
 ```
 
-Get SpaceStudio:
+Pick a drive with free space (E: here). `run.ps1` keeps the app data, renders, engine repos and download caches beside the install folder, so nothing heavy goes on C:.
 
 ```bash
-git clone -b claude/determined-cannon-396fzp https://github.com/Arpit2312/VideoCreationTool.git $HOME\VideoCreationTool
+mkdir E:\SpaceStudio -Force; cd E:\SpaceStudio; git clone -b claude/determined-cannon-396fzp https://github.com/Arpit2312/VideoCreationTool.git
 ```
-
-Get the three engine repos:
 
 ```bash
-mkdir $HOME\.spacestudio\engines -Force; cd $HOME\.spacestudio\engines; git clone https://github.com/Moh4696/cinematic-skill.git; git clone https://github.com/lemomo-ai/lemo-opuscar.git; git clone https://github.com/OpenMontageInc/OpenMontage.git
+mkdir E:\SpaceStudio\engines -Force; cd E:\SpaceStudio\engines; git clone https://github.com/Moh4696/cinematic-skill.git; git clone https://github.com/lemomo-ai/lemo-opuscar.git; git clone https://github.com/OpenMontageInc/OpenMontage.git
 ```
-
-Start SpaceStudio:
 
 ```bash
-cd $HOME\VideoCreationTool; powershell -ExecutionPolicy Bypass -File run.ps1
+cd E:\SpaceStudio\VideoCreationTool; powershell -ExecutionPolicy Bypass -File run.ps1
 ```
+
+This gives `E:\SpaceStudio\VideoCreationTool` (the app), `engines\` (the three repos), `data\` (projects, renders, database) and `cache\` (pip, npm, Hugging Face models, Playwright browsers, temp files).
 
 The browser opens at http://127.0.0.1:8000. On Windows, Claude Code and the engines' shell scripts run in Git Bash. SpaceStudio finds it automatically, or you can set `CLAUDE_CODE_GIT_BASH_PATH`.
 
