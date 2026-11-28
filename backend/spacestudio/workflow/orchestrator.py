@@ -785,7 +785,12 @@ class Orchestrator:
             with self.lock, session_scope() as s:
                 st = s.get(Stage, stage_id)
                 if st is not None and st.status == StageStatus.running.value:
-                    st.status, st.error = StageStatus.failed.value, redact(f"internal error: {e}")
+                    import traceback
+                    frames = [f for f in traceback.extract_tb(e.__traceback__) if "spacestudio" in f.filename]
+                    where = (f" [at {Path(frames[-1].filename).name}:{frames[-1].lineno} in {frames[-1].name}]"
+                             if frames else "")
+                    st.status, st.error = StageStatus.failed.value, redact(
+                        f"internal error: {e}{where}. This is a SpaceStudio bug; please report it. Retry may work.")
                     s.add(st)
                     for r in s.exec(select(Run).where(Run.stage_id == stage_id, Run.state == "running")).all():
                         r.state, r.ended_at = "failed", now()
@@ -932,9 +937,10 @@ class Orchestrator:
             else:
                 prompt = adapter.stage_prompt(spec, ws, cfg_d, feedback=feedback, resume=resume)
             prompt = prompts.ensure_header(prompt, st.key, v.id, ws, lane, st.expected_outputs or [])
-            if (feedback and feedback not in prompt) or (resume and "RESUME" not in prompt.upper()):
-                prompt += "\n\n" + prompts.engine_stage_extras(feedback if feedback not in prompt else None,
-                                                               fkind, resume and "RESUME" not in prompt.upper(),
+            new_feedback = feedback if (feedback and feedback not in prompt) else None
+            needs_resume_note = bool(resume and "RESUME" not in prompt.upper())
+            if new_feedback or needs_resume_note:
+                prompt += "\n\n" + prompts.engine_stage_extras(new_feedback, fkind, needs_resume_note,
                                                                False)
         tmp = ws / ".spacestudio" / "tmp"
         tmp.mkdir(parents=True, exist_ok=True)

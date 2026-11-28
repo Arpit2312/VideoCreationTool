@@ -257,3 +257,36 @@ def test_denied_command_can_be_allowed_for_the_video(make_client, monkeypatch):
     wait_stage(c, vid, "factcheck", {"completed", "running", "queued"})
     assert stage_of(c, vid, "research")["status"] == "completed"
     assert "Bash(wget *)" in c.get(f"/api/videos/{vid}").json()["video"]["config"]["extra_allowed_tools"]
+
+
+def test_engine_stage_continues_after_restart(make_client):
+    """Regression: resuming an engine-owned stage after a restart crashed with
+    "'in <string>' requires string as left operand, not NoneType" (no feedback, resume=True)."""
+    from spacestudio.db import session_scope
+    from spacestudio.models import Run, Stage, Video
+    from sqlmodel import select
+    from conftest import stub_registry
+
+    reg = stub_registry()
+    for a in reg.all():  # real engines' prompts carry no "RESUME" note of their own (the stub's params JSON did)
+        a.stage_prompt = (lambda eid: lambda stage, ws, config, feedback=None, resume=False:
+                          f"Engine {eid}: run {stage.key}.")(a.id)
+    c = make_client(reg)
+    vid = create(c, config={"approval_mode": "auto_to_preview"})["video"]["id"]
+    c.post(f"/api/videos/{vid}/start")
+    wait_stage(c, vid, "assets", {"completed"}, timeout=90)
+    c.post(f"/api/videos/{vid}/pause")
+    wait_for(lambda: not c.get("/api/queue").json()["running"], 60, what="idle")
+    seg = next(s for s in c.get(f"/api/videos/{vid}").json()["stages"] if s["key"].startswith("segment:"))
+    with session_scope() as s:
+        st = s.exec(select(Stage).where(Stage.video_id == vid, Stage.key == seg["key"])).first()
+        st.status = "running"
+        s.add(st)
+        s.add(Run(stage_id=st.id, video_id=vid, kind="claude", pid=999999, state="running"))
+        v = s.get(Video, vid)
+        v.status, v.paused = "running", False
+        s.add(v)
+    c.__exit__(None, None, None)
+    c2 = make_client(reg)
+    st = wait_stage(c2, vid, seg["key"], {"completed", "failed"}, timeout=90)
+    assert st["status"] == "completed" and st["error"] is None, st["error"]
