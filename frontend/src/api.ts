@@ -156,6 +156,8 @@ export const api = {
     action: "approve" | "request-changes" | "reject" | "retry" | "skip" | "answer",
     body?: { feedback?: string; answer?: string },
   ) => post<Stage>(`/videos/${enc(id)}/stages/${enc(key)}/${action}`, body ?? {}),
+  allowTools: (id: string, key: string, rules: string[]) =>
+    post<Stage>(`/videos/${enc(id)}/stages/${enc(key)}/allow-tools`, { rules, confirm: true }),
   stageLogs: (id: string, key: string, tail = 500) =>
     get<{ lines: string[] }>(`/videos/${enc(id)}/stages/${enc(key)}/logs${qs({ tail })}`),
 

@@ -11,6 +11,7 @@ Env knobs:
   FAKE_CLAUDE_SLEEP=<seconds>      sleep before doing the work (cancel/timeout tests)
   FAKE_CLAUDE_SLEEP_STAGE=<stage>  only sleep for that stage
   FAKE_CLAUDE_EXIT=<code>          exit with that code after the result
+  FAKE_CLAUDE_DENY=<stage>         `wget` is denied for that stage unless --allowedTools has Bash(wget *)
 """
 from __future__ import annotations
 
@@ -323,6 +324,14 @@ def main() -> int:
         append({"type": "needs_input", "stage": key, "question": f"[SIMULATED] Which angle should {key} take?"})
         out({"type": "result", "subtype": "success", "is_error": False, "result": "needs input",
              "total_cost_usd": 0, "session_id": session_id})
+        return 0
+    allowed_text = ",".join(opts.get("allowed") or [])
+    if os.environ.get("FAKE_CLAUDE_DENY") == key and "Bash(wget *)" not in allowed_text:
+        append({"type": "needs_input", "stage": key,
+                "question": "[SIMULATED] Downloading the imagery needs wget, which was denied."})
+        out({"type": "result", "subtype": "success", "is_error": False, "result": "blocked", "total_cost_usd": 0,
+             "session_id": session_id, "permission_denials": [
+                 {"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "wget -q https://example.org/a.jpg"}}]})
         return 0
     if os.environ.get("FAKE_CLAUDE_FAIL") == key:
         append({"type": "error", "stage": key, "message": f"[SIMULATED] {key} failed on purpose"})

@@ -237,3 +237,23 @@ def test_settings_projects_engines_ideas(make_client):
     assert "openmontage" not in owners
     assert c.patch(f"/api/videos/{vid}/config", json={"duration_seconds": 30}).json()["config"]["duration_seconds"] == 30
     assert c.patch(f"/api/videos/{vid}/config", json={"nope": 1}).status_code == 422
+
+
+
+def test_denied_command_can_be_allowed_for_the_video(make_client, monkeypatch):
+    fake_env(monkeypatch, FAKE_CLAUDE_DENY="research")
+    c = make_client()
+    vid = create(c)["video"]["id"]
+    c.post(f"/api/videos/{vid}/start")
+    st = wait_stage(c, vid, "research", {"needs_input"})
+    denied = st["params"]["permission_denials"]
+    assert denied[0]["command"].startswith("wget") and denied[0]["rules"] == ["Bash(wget *)"]
+    # explicit confirmation required; blanket rules refused
+    assert c.post(f"/api/videos/{vid}/stages/research/allow-tools", json={"rules": ["Bash(wget *)"]}).status_code == 400
+    assert c.post(f"/api/videos/{vid}/stages/research/allow-tools",
+                  json={"rules": ["Bash(*)"], "confirm": True}).status_code == 400
+    r = c.post(f"/api/videos/{vid}/stages/research/allow-tools", json={"rules": ["Bash(wget *)"], "confirm": True})
+    assert r.status_code == 200, r.text
+    wait_stage(c, vid, "factcheck", {"completed", "running", "queued"})
+    assert stage_of(c, vid, "research")["status"] == "completed"
+    assert "Bash(wget *)" in c.get(f"/api/videos/{vid}").json()["video"]["config"]["extra_allowed_tools"]

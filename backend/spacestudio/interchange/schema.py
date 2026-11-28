@@ -43,6 +43,7 @@ class VideoConfig(BaseModel):
     engines: list[str] = Field(default_factory=list)       # allowed engines; empty = all enabled
     excluded_engines: list[str] = Field(default_factory=list)
     engine_options: dict = Field(default_factory=dict)     # e.g. {"lemo-opuscar": {"style": "whiteboard"}}
+    extra_allowed_tools: list[str] = Field(default_factory=list)   # rules the user approved for this video
     claude_model: Optional[str] = None
     claude_effort: Optional[str] = "high"
     max_claude_budget_usd: Optional[float] = None

@@ -135,6 +135,8 @@ class ClaudeRunner:
             cmd += ["--permission-mode", mode]
         if req.allowed_tools:
             cmd += ["--allowedTools", ",".join(req.allowed_tools)]
+        if os.name == "nt":  # SpaceStudio's command rules are written for Bash (Git Bash on Windows)
+            cmd += ["--disallowedTools", "PowerShell"]
         for d in req.add_dirs:
             cmd += ["--add-dir", str(d)]
         for d in req.plugin_dirs:

@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from sqlmodel import Session, select
 
+from ..permissions import is_valid_rule, summarize as summarize_denials
 from ..platform_compat import normalize_shell_paths, shell_path, terminate_tree, windows_tool_aliases
 from .. import workspace
 from ..audit import audit
@@ -41,7 +42,7 @@ DEFAULT_TOOLS = [
     "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "Task", "TodoWrite",
     "Bash(python3 *)", "Bash(python *)", "Bash(ffmpeg *)", "Bash(ffprobe *)", "Bash(printf *)", "Bash(echo *)",
     "Bash(mkdir *)", "Bash(ls *)", "Bash(cat *)", "Bash(cp *)", "Bash(mv *)", "Bash(test *)", "Bash(wc *)",
-    f"Bash({prompts.SLOT_BIN} *)",
+    f"Bash({prompts.SLOT_BIN} *)", "Bash(spacestudio-slot *)",
 ]
 MAIN_LANE_TOOLS = ["WebSearch", "WebFetch", "Bash(curl *)"]
 
@@ -514,6 +515,37 @@ class Orchestrator:
         self.wake()
         return st
 
+    def allow_tools(self, s: Session, st: Stage, rules: list[str], actor: str = "user") -> Stage:
+        """The user approves command rules for this video, then the blocked stage continues."""
+        bad = [r for r in rules if not is_valid_rule(r)]
+        if not rules or bad:
+            raise OrchestratorError("invalid or missing rules: " + ", ".join(bad or ["(none)"]), 400)
+        with self.lock:
+            v = self._video(s, st)
+            cfg = dict(v.config or {})
+            cfg["extra_allowed_tools"] = list(dict.fromkeys(list(cfg.get("extra_allowed_tools") or []) + rules))
+            v.config = cfg
+            s.add(v)
+            note = ("The user allowed these commands for this video: " + ", ".join(rules)
+                    + ". Run what was blocked before and continue the stage.")
+            if st.status == StageStatus.needs_input.value:
+                st.status = transition(st.status, "answer").value
+            elif st.status in (StageStatus.failed.value, StageStatus.cancelled.value):
+                st.status = transition(st.status, "retry").value
+            elif st.status != StageStatus.queued.value:
+                raise OrchestratorError(f"stage is {st.status}; rules saved for its next run", 409)
+            st.pending_feedback = note
+            st.params = {k: val for k, val in {**(st.params or {}), "_feedback_kind": "answer"}.items()
+                         if k != "permission_denials"}
+            st.question = None
+            st.error = None
+            self._audit(s, "video.tools_allowed", actor, v.id, stage=st.key, rules=rules)
+            s.add(st)
+            s.commit()
+            self._after_change(s, v, st)
+        self.wake()
+        return st
+
     @staticmethod
     def _audit(s: Session, event: str, actor: str = "system", video_id: Optional[str] = None, **details: Any) -> None:
         """Audit inside the caller's transaction (a second connection would wait on SQLite's write lock).
@@ -925,6 +957,7 @@ class Orchestrator:
                  getattr(self.settings, "engines_dir", None)]
         protocol = normalize_shell_paths(prompts.stage_protocol(cfg.zero_cost), roots)
         prompt = normalize_shell_paths(prompt, roots)
+        tools = list(dict.fromkeys(tools + [t for t in (cfg.extra_allowed_tools or []) if is_valid_rule(t)]))
         tools = windows_tool_aliases([normalize_shell_paths(t, roots) for t in tools])
         sess = s.exec(select(ClaudeSession).where(ClaudeSession.video_id == v.id, ClaudeSession.lane == lane)).first()
         return RunRequest(
@@ -1082,6 +1115,12 @@ class Orchestrator:
             names = sorted({str(d.get("tool_name", d)) if isinstance(d, dict) else str(d)
                             for d in result.permission_denials})
             warnings.append("permission denied for: " + ", ".join(names)[:300])
+            st.params = {**(st.params or {}), "permission_denials": [
+                {**d, "command": redact(d["command"])}
+                for d in summarize_denials(result.permission_denials, DEFAULT_TOOLS + MAIN_LANE_TOOLS
+                                           + list(cfg.extra_allowed_tools or []))]}
+        else:
+            st.params = {k: val for k, val in (st.params or {}).items() if k != "permission_denials"}
         if result.timed_out:
             return Outcome("failed", warnings=warnings,
                            error=f"timed out after {self.settings.stage_timeout_minutes} minutes")

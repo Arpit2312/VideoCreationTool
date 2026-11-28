@@ -9,6 +9,7 @@ import { laneLabel } from "../../lib/timeline";
 import { Badge, cx, EngineBadge, ErrorBox, KV, Loading, ProgressBar, StatusBadge } from "../ui";
 
 type Action = "approve" | "request-changes" | "reject" | "retry" | "skip" | "answer";
+type Denial = { tool: string; command: string; rules?: string[] };
 
 export function StagePanel({ videoId, stage }: { videoId: string; stage: Stage }) {
   const qc = useQueryClient();
@@ -33,6 +34,18 @@ export function StagePanel({ videoId, stage }: { videoId: string; stage: Stage }
   });
   const s = detail.data?.stage ?? stage;
   const allowed = allowedStageActions(s);
+  const denials = ((s.params as Record<string, unknown> | undefined)?.permission_denials ?? []) as Denial[];
+  const suggested = Array.from(new Set(denials.flatMap((d) => d.rules ?? [])));
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const chosen = picked ?? suggested;
+  const allow = useMutation({
+    mutationFn: (rules: string[]) => api.allowTools(videoId, stage.key, rules),
+    onSuccess: () => {
+      setPicked(null);
+      qc.invalidateQueries({ queryKey: ["video", videoId] });
+      qc.invalidateQueries({ queryKey: ["stage", videoId] });
+    },
+  });
   const logRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -70,6 +83,48 @@ export function StagePanel({ videoId, stage }: { videoId: string; stage: Stage }
           <div className="text-xs text-muted mt-1">
             {s.last_activity ? `Last activity: ${s.last_activity}` : `Started ${timeAgo(s.started_at)}`}
           </div>
+        </div>
+      )}
+
+
+      {denials.length > 0 && ["needs_input", "failed", "queued"].includes(s.status) && (
+        <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 space-y-2">
+          <div className="font-medium text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+            <AlertTriangle className="h-4 w-4" /> Claude was blocked from running these commands
+          </div>
+          <ul className="space-y-1">
+            {denials.map((d, i) => (
+              <li key={i} className="text-xs">
+                <span className="text-muted">{d.tool}:</span> <code className="font-mono break-all">{d.command || "(no details)"}</code>
+                {d.tool === "PowerShell" && <span className="text-muted"> (PowerShell is turned off; Claude will use Git Bash)</span>}
+              </li>
+            ))}
+          </ul>
+          {suggested.length > 0 ? (
+            <>
+              <p className="text-xs text-muted">
+                Allow these command types for <b>this video only</b>? Only allow commands you expect for this stage (e.g. downloading free imagery or fonts).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {suggested.map((r) => (
+                  <label key={r} className="inline-flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(r)}
+                      onChange={(e) => setPicked(e.target.checked ? [...chosen, r] : chosen.filter((x) => x !== r))}
+                    />
+                    <code className="font-mono">{r}</code>
+                  </label>
+                ))}
+              </div>
+              <button className="btn-primary" disabled={chosen.length === 0 || allow.isPending} onClick={() => allow.mutate(chosen)}>
+                Allow selected & continue
+              </button>
+              {allow.error && <p className="text-xs text-red-600">{String((allow.error as Error).message)}</p>}
+            </>
+          ) : (
+            <p className="text-xs text-muted">Nothing to approve here; Retry the stage.</p>
+          )}
         </div>
       )}
 

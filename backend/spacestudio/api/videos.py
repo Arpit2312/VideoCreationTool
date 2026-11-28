@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
@@ -210,6 +211,19 @@ def retry_stage(video_id: str, key: str, s: Session = Depends(get_session)) -> S
 @router.post("/videos/{video_id}/stages/{key}/skip")
 def skip_stage(video_id: str, key: str, s: Session = Depends(get_session)) -> Stage:
     return call(orch().skip, s, stage_or_404(s, video_id, key))
+
+
+class AllowToolsBody(BaseModel):
+    rules: list[str]
+    confirm: bool = False
+
+
+@router.post("/videos/{video_id}/stages/{key}/allow-tools")
+def allow_tools(video_id: str, key: str, body: AllowToolsBody, s: Session = Depends(get_session)) -> Stage:
+    """Approve command rules (e.g. Bash(curl *)) that Claude was denied, for this video only, and continue."""
+    if not body.confirm:
+        raise HTTPException(400, "confirm must be true: these commands will be allowed for this video")
+    return call(orch().allow_tools, s, stage_or_404(s, video_id, key), body.rules)
 
 
 @router.post("/videos/{video_id}/stages/{key}/answer")
